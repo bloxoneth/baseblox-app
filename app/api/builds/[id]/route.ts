@@ -3,8 +3,9 @@ import { redis } from "@/lib/redis"
 import type { Build } from "@/lib/types"
 
 // GET /api/builds/:id - Get a specific build
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
+    const params = await context.params
     const { id } = params
     const build = await redis.get<Build>(`build:${id}`)
 
@@ -20,8 +21,9 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 }
 
 // DELETE /api/builds/:id - Delete a build
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
+    const params = await context.params
     const { id } = params
     await redis.del(`build:${id}`)
 

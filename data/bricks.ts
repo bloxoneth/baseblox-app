@@ -1,5 +1,5 @@
 // Brick NFT data - core primitive for ETHBLOX
-// Each brick represents a single-layer rectangle (up to 20x20)
+// Each brick represents a single-layer rectangle (up to 10x10)
 // Fresh start - no dummy data, bricks are minted on-chain
 
 export interface BrickNFT {
@@ -27,7 +27,7 @@ export function generateGeometryHash(width: number, depth: number, density: numb
   return `brick-${width}x${depth}-d${density}`
 }
 
-// All possible brick sizes (1x1 to 20x20) with various densities
+// All possible brick sizes (1x1 to 10x10) with various densities
 // Starting fresh - all bricks are unminted until minted on-chain
 export const BRICK_DENSITIES = [1, 8, 27, 64, 125] as const
 
@@ -36,10 +36,10 @@ export const BRICK_DENSITIES = [1, 8, 27, 64, 125] as const
 function generateAllBricks(): BrickNFT[] {
   const bricks: BrickNFT[] = []
   
-  // Generate all possible bricks (1x1 to 20x20, all densities)
+  // Generate all possible bricks (1x1 to 10x10, all densities)
   // All start unminted - real minting status comes from blockchain
-  for (let width = 1; width <= 20; width++) {
-    for (let depth = width; depth <= 20; depth++) { // depth >= width to avoid duplicates
+  for (let width = 1; width <= 10; width++) {
+    for (let depth = width; depth <= 10; depth++) { // depth >= width to avoid duplicates
       for (const density of BRICK_DENSITIES) {
         const key = `${width}x${depth}-d${density}`
         const mass = calculateMass(width, depth, density)

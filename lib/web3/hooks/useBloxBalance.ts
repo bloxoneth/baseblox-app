@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { useMetaMask } from "@/contexts/metamask-context"
 import { MOCKBLOX_CONTRACT, BASE_SEPOLIA } from "@/lib/web3/chains"
 
-export function useBloxBalance() {
+export function useBloxBalance(targetAddress?: string) {
   const { account, chainId, isConnected } = useMetaMask()
   const [balance, setBalance] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -20,9 +20,10 @@ export function useBloxBalance() {
 
   const normalizedChainId = normalizeChainId(chainId)
   const isCorrectChain = normalizedChainId === BASE_SEPOLIA.chainId.toLowerCase()
+  const addressToRead = targetAddress || account
 
   useEffect(() => {
-    if (!account || !isConnected || !isCorrectChain) {
+    if (!addressToRead || !isConnected || !isCorrectChain) {
       setBalance(null)
       return
     }
@@ -32,10 +33,10 @@ export function useBloxBalance() {
     // Poll every 10 seconds
     const interval = setInterval(fetchBalance, 10000)
     return () => clearInterval(interval)
-  }, [account, isConnected, isCorrectChain])
+  }, [addressToRead, isConnected, isCorrectChain])
 
   const fetchBalance = async () => {
-    if (!account || !isCorrectChain) return
+    if (!addressToRead || !isCorrectChain) return
 
     setLoading(true)
     setError(null)
@@ -54,7 +55,7 @@ export function useBloxBalance() {
         params: [
           {
             to: MOCKBLOX_CONTRACT.address,
-            data: `0x70a08231000000000000000000000000${account.slice(2)}`, // balanceOf(address)
+            data: `0x70a08231000000000000000000000000${addressToRead.slice(2)}`, // balanceOf(address)
           },
           "latest",
         ],

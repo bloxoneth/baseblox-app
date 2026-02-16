@@ -1,24 +1,25 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { redis } from "@/lib/redis"
+import { rk, rpat } from "@/lib/redis-keys"
 import type { Build } from "@/lib/types"
 
-export async function GET(request: NextRequest, { params }: { params: { tokenId: string } }) {
+export async function GET(request: NextRequest, context: { params: Promise<{ tokenId: string }> }) {
   try {
-    const { tokenId } = params
+    const { tokenId } = await context.params
 
     console.log("[v0] [TOKEN API] Fetching build data for token ID:", tokenId)
 
     // First, try the new lookup: token:{tokenId} -> buildId
-    let buildId = await redis.get<string>(`token:${tokenId}`)
+    let buildId = await redis.get<string>(rk(`token:${tokenId}`))
 
     if (!buildId) {
       console.log("[v0] [TOKEN API] Token lookup failed, trying alt format")
-      buildId = await redis.get<string>(`build:token:${tokenId}`)
+      buildId = await redis.get<string>(rk(`build:token:${tokenId}`))
     }
 
     if (buildId) {
       console.log("[v0] [TOKEN API] Found buildId via token lookup:", buildId)
-      const buildData = await redis.get<Build>(`build:${buildId}`)
+      const buildData = await redis.get<Build>(rk(`build:${buildId}`))
 
       if (buildData) {
         console.log("[v0] [TOKEN API] Raw build data found, checking bricks...")
@@ -45,17 +46,17 @@ export async function GET(request: NextRequest, { params }: { params: { tokenId:
     }
 
     console.log("[v0] [TOKEN API] Scanning all build keys for tokenId match")
-    const allKeys = await redis.keys("build:*")
+    const allKeys = await redis.keys(rpat("build:*"))
     console.log("[v0] [TOKEN API] Found", allKeys.length, "build keys")
 
     for (const key of allKeys) {
       // Skip lookup keys
-      if (key.startsWith("build:token:") || key.startsWith("build:hash:")) continue
+      if (key.startsWith(rk("build:token:")) || key.startsWith(rk("build:hash:"))) continue
 
       const data = await redis.get<Build>(key)
       if (data && typeof data === "object") {
         // Check if this build has the matching tokenId
-        if (data.tokenId === Number.parseInt(tokenId)) {
+        if (String(data.tokenId) === String(tokenId)) {
           console.log("[v0] [TOKEN API] Found build via scan:", key, "with tokenId:", data.tokenId)
 
           let bricks = data.bricks
@@ -75,7 +76,7 @@ export async function GET(request: NextRequest, { params }: { params: { tokenId:
             ...data,
             bricks,
             tokenId: Number.parseInt(tokenId),
-            buildId: key.replace("build:", ""),
+            buildId: key.replace(rk("build:"), ""),
           })
         }
       }

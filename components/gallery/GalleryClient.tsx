@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Download, ExternalLink } from "lucide-react"
 import { CONTRACTS } from "@/lib/contracts/ethblox-contracts"
+import { BuildVoxelPreview } from "@/components/preview/BuildVoxelPreview"
+import { fetchWithDataSource, useDataSourceMode } from "@/lib/data-source"
 
 interface MintedBuild {
   tokenId: string
@@ -15,26 +17,41 @@ interface MintedBuild {
   name: string
   mass: number
   buildHash?: string
+  geometryHash?: string
   creator?: string
   mintedAt?: string
   txHash?: string
+  bricks?: Array<{
+    color?: string
+    position: [number, number, number]
+    width?: number
+    depth?: number
+  }>
+  kind?: number
+  density?: number
+  brickWidth?: number
+  brickDepth?: number
 }
 
 export default function GalleryClient() {
+  const explorerBase = process.env.NEXT_PUBLIC_BLOCK_EXPLORER_URL ?? "https://sepolia.basescan.org"
+  const sourceMode = useDataSourceMode()
   const [builds, setBuilds] = useState<MintedBuild[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
+  const [missingInfo, setMissingInfo] = useState<string[]>([])
 
   useEffect(() => {
     fetchMintedBuilds()
-  }, [])
+  }, [sourceMode])
 
   const fetchMintedBuilds = async () => {
     try {
-      const response = await fetch("/api/builds/minted")
+      const response = await fetchWithDataSource("/api/builds/minted")
       if (response.ok) {
         const data = await response.json()
         setBuilds(data.builds || [])
+        setMissingInfo(Array.isArray(data.missing) ? data.missing : [])
         console.log("[v0] Loaded", data.builds?.length || 0, "minted builds from database")
       } else {
         console.error("[v0] Failed to fetch minted builds:", response.statusText)
@@ -59,7 +76,7 @@ export default function GalleryClient() {
 
   const handleLoadIntoBuilder = async (tokenId: string) => {
     try {
-      const response = await fetch(`/api/builds/token/${tokenId}`)
+      const response = await fetchWithDataSource(`/api/builds/token/${tokenId}`)
       if (response.ok) {
         const buildData = await response.json()
         // Store in localStorage for the builder to load
@@ -106,6 +123,9 @@ export default function GalleryClient() {
 
         {filteredBuilds.length === 0 ? (
           <div className="text-center py-12">
+            {missingInfo.length > 0 && (
+              <p className="text-yellow-300 text-xs mb-2">Missing: {missingInfo.join(", ")}</p>
+            )}
             <p className="text-muted-foreground mb-4">
               {searchTerm ? "No builds found matching your search" : "No builds minted yet"}
             </p>
@@ -123,6 +143,14 @@ export default function GalleryClient() {
 
               return (
                 <Card key={build.tokenId} className="flex flex-col">
+                  <div className="h-44 border-b border-[hsl(var(--ethblox-border))] bg-[hsl(var(--ethblox-bg))]">
+                    <BuildVoxelPreview
+                      bricks={build.bricks}
+                      geometryHash={build.geometryHash || build.buildHash}
+                      tokenId={build.tokenId}
+                      className="h-full w-full"
+                    />
+                  </div>
                   <CardHeader>
                     <div className="flex items-start justify-between gap-2">
                       <CardTitle className="line-clamp-1">{name}</CardTitle>
@@ -175,7 +203,7 @@ export default function GalleryClient() {
                     </Button>
                     <Button variant="outline" asChild>
                       <a
-                        href={`https://sepolia.basescan.org/nft/${CONTRACTS.BUILD_NFT}/${build.tokenId}`}
+                        href={`${explorerBase}/nft/${CONTRACTS.BUILD_NFT}/${build.tokenId}`}
                         target="_blank"
                         rel="noopener noreferrer"
                       >

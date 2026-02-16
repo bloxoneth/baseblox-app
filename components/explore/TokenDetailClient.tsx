@@ -3,6 +3,7 @@
 import React, { useState } from "react"
 import useSWR from "swr"
 import Link from "next/link"
+import { ethers } from "ethers"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import {
@@ -21,16 +22,87 @@ import {
   Link as LinkIcon,
   Upload,
   Loader2,
+  Layers,
 } from "lucide-react"
-import { CONTRACTS, resolveIPFS, tokenImageGatewayURL } from "@/lib/contracts/ethblox-contracts"
+import { CONTRACTS } from "@/lib/contracts/ethblox-contracts"
+import { useMetaMask } from "@/contexts/metamask-context"
+import { registerBuildLicenseIfOwner, mintLicenseForBuild } from "@/lib/contracts/ethblox-contracts"
+import { BuildVoxelPreview } from "@/components/preview/BuildVoxelPreview"
 
 type DataMode = "onchain" | "app"
+type ComponentRow = { id: string; count: number; name?: string }
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json())
 
 function shortenAddress(addr: string) {
   if (!addr) return ""
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`
+}
+
+function traitValue(meta: any, key: string): any {
+  const attrs = Array.isArray(meta?.attributes) ? meta.attributes : []
+  const hit = attrs.find((a: any) => String(a?.trait_type ?? "").toLowerCase() === key.toLowerCase())
+  return hit?.value
+}
+
+function normalizeComponents(input: any): ComponentRow[] {
+  const out = new Map<string, ComponentRow>()
+  const put = (idRaw: unknown, countRaw: unknown, nameRaw?: unknown) => {
+    const id = String(idRaw ?? "").trim()
+    const count = Number(countRaw ?? 0)
+    if (!/^\d+$/.test(id) || Number(id) <= 0 || count <= 0) return
+    const prev = out.get(id)
+    out.set(id, {
+      id,
+      count: (prev?.count ?? 0) + count,
+      name: String(nameRaw ?? prev?.name ?? `Token #${id}`),
+    })
+  }
+
+  if (input?.composition && typeof input.composition === "object") {
+    for (const [id, info] of Object.entries(input.composition as Record<string, any>)) {
+      put(id, info?.count, info?.name)
+    }
+  }
+  if (Array.isArray(input?.componentBuildIds) && Array.isArray(input?.componentCounts)) {
+    const ids = input.componentBuildIds
+    const counts = input.componentCounts
+    for (let i = 0; i < Math.min(ids.length, counts.length); i++) {
+      put(ids[i], counts[i])
+    }
+  }
+  if (Array.isArray(input?.components)) {
+    for (const c of input.components) {
+      put(c?.componentId ?? c?.id, c?.count, c?.name)
+    }
+  }
+
+  return [...out.values()].sort((a, b) => Number(a.id) - Number(b.id))
+}
+
+function buildIpfsTraits(meta: any): Array<{ label: string; value: string | number }> {
+  const out: Array<{ label: string; value: string | number }> = []
+  const push = (label: string, value: unknown) => {
+    if (value === undefined || value === null || value === "") return
+    out.push({ label, value: typeof value === "number" || typeof value === "string" ? value : String(value) })
+  }
+
+  const attrs = Array.isArray(meta?.attributes) ? meta.attributes : []
+  for (const attr of attrs) {
+    push(String(attr?.trait_type ?? ""), attr?.value)
+  }
+
+  if (out.length === 0) {
+    push("Kind", meta?.kind)
+    push("Density", meta?.density)
+    push("Mass", meta?.mass)
+    push("Geometry Hash", meta?.geometryHash)
+    if (Array.isArray(meta?.tags) && meta.tags.length > 0) {
+      push("Tags", meta.tags.join(", "))
+    }
+  }
+
+  return out
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -92,6 +164,11 @@ function CollapsibleSection({
 
 export function TokenDetailClient({ tokenId }: { tokenId: string }) {
   const [mode, setMode] = useState<DataMode>("onchain")
+  const [licenseActionLoading, setLicenseActionLoading] = useState<"register" | "buy" | null>(null)
+  const [licenseActionError, setLicenseActionError] = useState<string | null>(null)
+  const explorerBase = process.env.NEXT_PUBLIC_BLOCK_EXPLORER_URL ?? "https://sepolia.basescan.org"
+  const networkName = process.env.NEXT_PUBLIC_NETWORK_NAME ?? "Base Sepolia"
+  const { account, isConnected, connect, switchChain } = useMetaMask()
 
   // Always fetch both so switching is instant
   const { data: onchainData, isLoading: onchainLoading } = useSWR(
@@ -104,10 +181,17 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
     fetcher,
     { revalidateOnFocus: false }
   )
+  const { data: licenseData, mutate: mutateLicenseData } = useSWR(
+    `/api/licenses/build/${tokenId}`,
+    fetcher,
+    { revalidateOnFocus: false }
+  )
 
   const isLoading = mode === "onchain" ? onchainLoading : appLoading
-  const basescanURL = `https://sepolia.basescan.org/token/${CONTRACTS.BUILD_NFT}?a=${tokenId}`
-  const image = tokenImageGatewayURL(tokenId)
+  const basescanURL = `${explorerBase}/token/${CONTRACTS.BUILD_NFT}?a=${tokenId}`
+  const previewBricks = appData?.bricks && appData.bricks.length > 0 ? appData.bricks : undefined
+  const previewHash =
+    (mode === "onchain" ? onchainData?.onchain?.geometryHash : appData?.geometryHash || appData?.buildHash) ?? ""
 
   if (isLoading) {
     return (
@@ -131,6 +215,19 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
   const ipfsMetadata = onchainData?.ipfsMetadata
   const ipfsURL = onchainData?.ipfsURL
   const errors = onchainData?.errors
+  const appComponents = normalizeComponents(appData)
+  const ipfsComponents = normalizeComponents(ipfsMetadata)
+  const ipfsTraits = buildIpfsTraits(ipfsMetadata)
+  const appKind = appData?.kind
+  const ipfsKind = ipfsMetadata?.kind ?? traitValue(ipfsMetadata, "kind") ?? onchain?.kind
+  const appDensity = appData?.density
+  const ipfsDensity = ipfsMetadata?.density ?? traitValue(ipfsMetadata, "density")
+  const appMass = appData?.mass
+  const ipfsMass = ipfsMetadata?.mass ?? traitValue(ipfsMetadata, "mass")
+  const appGeom = appData?.geometryHash || appData?.buildHash || ""
+  const ipfsGeom = ipfsMetadata?.geometryHash ?? traitValue(ipfsMetadata, "geometryHash") ?? onchain?.geometryHash ?? ""
+  const appCompSig = appComponents.map((c) => `${c.id}x${c.count}`).join(",")
+  const ipfsCompSig = ipfsComponents.map((c) => `${c.id}x${c.count}`).join(",")
 
   const name =
     mode === "onchain"
@@ -142,6 +239,41 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
       : null
   const kindRaw = mode === "onchain" ? onchain?.kind : appData?.kind
   const kindLabel = kindRaw === 0 ? "Brick" : kindRaw > 0 ? "Build" : "--"
+
+  const handleRegisterLicense = async () => {
+    try {
+      setLicenseActionError(null)
+      setLicenseActionLoading("register")
+      if (!isConnected) await connect()
+      await switchChain(CONTRACTS.BASE_SEPOLIA_CHAIN_ID)
+      const ethereum = (window as any).ethereum
+      const provider = new ethers.BrowserProvider(ethereum)
+      await registerBuildLicenseIfOwner(provider, BigInt(tokenId))
+      await mutateLicenseData()
+    } catch (error: any) {
+      setLicenseActionError(error?.message || "Failed to register license")
+    } finally {
+      setLicenseActionLoading(null)
+    }
+  }
+
+  const handleBuyLicense = async () => {
+    try {
+      setLicenseActionError(null)
+      setLicenseActionLoading("buy")
+      if (!isConnected) await connect()
+      await switchChain(CONTRACTS.BASE_SEPOLIA_CHAIN_ID)
+      const ethereum = (window as any).ethereum
+      const provider = new ethers.BrowserProvider(ethereum)
+      const tx = await mintLicenseForBuild(provider, BigInt(tokenId), 1n)
+      await tx.wait()
+      await mutateLicenseData()
+    } catch (error: any) {
+      setLicenseActionError(error?.message || "Failed to buy license")
+    } finally {
+      setLicenseActionLoading(null)
+    }
+  }
 
   return (
     <div className="container mx-auto px-6 max-w-[1200px]">
@@ -190,18 +322,12 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
           <div className="sticky top-24 space-y-4">
             <Card className="bg-[hsl(var(--ethblox-surface))] border-[hsl(var(--ethblox-border))] overflow-hidden">
               <div className="aspect-square flex items-center justify-center bg-[hsl(var(--ethblox-bg))]">
-                {image ? (
-                  <img
-                    src={image}
-                    alt={name}
-                    className="w-full h-full object-contain"
-                  />
-                ) : (
-                  <div className="text-center">
-                    <Box className="h-16 w-16 mx-auto mb-3 text-[hsl(var(--ethblox-text-tertiary))]" />
-                    <p className="text-sm text-[hsl(var(--ethblox-text-tertiary))]">No image</p>
-                  </div>
-                )}
+                <BuildVoxelPreview
+                  bricks={previewBricks}
+                  geometryHash={previewHash}
+                  tokenId={tokenId}
+                  className="h-full w-full"
+                />
               </div>
             </Card>
 
@@ -224,7 +350,7 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
           {/* Header */}
           <div>
             <Link
-              href={`https://sepolia.basescan.org/address/${CONTRACTS.BUILD_NFT}`}
+              href={`${explorerBase}/address/${CONTRACTS.BUILD_NFT}`}
               target="_blank"
               className="text-sm text-[hsl(var(--ethblox-accent-cyan))] hover:underline flex items-center gap-1"
             >
@@ -244,7 +370,7 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
             <span className="text-[hsl(var(--ethblox-text-tertiary))]">Owned by</span>
             {mode === "onchain" && onchain?.owner ? (
               <Link
-                href={`https://sepolia.basescan.org/address/${onchain.owner}`}
+                href={`${explorerBase}/address/${onchain.owner}`}
                 target="_blank"
                 className="text-[hsl(var(--ethblox-accent-cyan))] hover:underline flex items-center gap-1"
               >
@@ -253,7 +379,7 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
               </Link>
             ) : mode === "app" && appData?.creator ? (
               <Link
-                href={`https://sepolia.basescan.org/address/${appData.creator}`}
+                href={`${explorerBase}/address/${appData.creator}`}
                 target="_blank"
                 className="text-[hsl(var(--ethblox-accent-cyan))] hover:underline flex items-center gap-1"
               >
@@ -266,10 +392,27 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
           </div>
 
           {/* ─── ON-CHAIN VIEW ─── */}
+          {(appData || ipfsMetadata) && (
+            <CollapsibleSection
+              title="App vs IPFS Compare"
+              icon={<Database className="h-4 w-4 text-[hsl(var(--ethblox-text-tertiary))]" />}
+              defaultOpen
+            >
+              <div className="space-y-2 mt-3 text-xs">
+                <CompareRow label="Name" appValue={appData?.name} ipfsValue={ipfsMetadata?.name} />
+                <CompareRow label="Kind" appValue={appKind} ipfsValue={ipfsKind} />
+                <CompareRow label="Density" appValue={appDensity} ipfsValue={ipfsDensity} />
+                <CompareRow label="Mass" appValue={appMass} ipfsValue={ipfsMass} />
+                <CompareRow label="Geometry Hash" appValue={appGeom} ipfsValue={ipfsGeom} mono />
+                <CompareRow label="Components" appValue={appCompSig || "(none)"} ipfsValue={ipfsCompSig || "(none)"} mono />
+              </div>
+            </CollapsibleSection>
+          )}
+
           {mode === "onchain" && (
             <>
               {/* Properties from chain + IPFS */}
-              {(onchain?.brickSpec || (ipfsMetadata?.attributes?.length > 0)) && (
+              {(onchain?.brickSpec || ipfsTraits.length > 0) && (
                 <CollapsibleSection
                   title="Properties"
                   icon={<Box className="h-4 w-4 text-[hsl(var(--ethblox-text-tertiary))]" />}
@@ -287,14 +430,100 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
                     {onchain?.lockedBlox && onchain.lockedBlox !== "0" && (
                       <TraitCard label="Locked BLOX" value={onchain.lockedBlox} />
                     )}
-                    {(ipfsMetadata?.attributes || []).map((attr: any) => (
-                      <TraitCard key={attr.trait_type} label={attr.trait_type} value={attr.value} />
+                    {ipfsTraits.map((t) => (
+                      <TraitCard key={`${t.label}:${String(t.value)}`} label={t.label} value={t.value} />
                     ))}
                   </div>
                 </CollapsibleSection>
               )}
 
               {/* Contract details */}
+              {(kindRaw === 0 || appData?.kind === 0) && (
+                <CollapsibleSection
+                  title="License Market"
+                  icon={<Layers className="h-4 w-4 text-[hsl(var(--ethblox-text-tertiary))]" />}
+                  defaultOpen
+                >
+                  <div className="space-y-3 mt-3">
+                    <DetailRow label="Registered">
+                      <span className="text-xs text-[hsl(var(--ethblox-text-primary))]">
+                        {licenseData?.isRegistered ? "Yes" : "No"}
+                      </span>
+                    </DetailRow>
+                    <DetailRow label="License ID">
+                      <span className="text-xs font-mono text-[hsl(var(--ethblox-text-primary))]">
+                        {licenseData?.licenseId ?? "--"}
+                      </span>
+                    </DetailRow>
+                    <DetailRow label="Current Price">
+                      <span className="text-xs text-[hsl(var(--ethblox-text-primary))]">
+                        {licenseData?.nextUnitPriceEth ? `${Number(licenseData.nextUnitPriceEth).toFixed(6)} ETH` : "--"}
+                      </span>
+                    </DetailRow>
+                    <DetailRow label="Minted / Max">
+                      <span className="text-xs text-[hsl(var(--ethblox-text-primary))]">
+                        {licenseData?.mintedSupply ?? "--"} / {licenseData?.maxSupply ?? "--"}
+                      </span>
+                    </DetailRow>
+                    <DetailRow label="Used In Builds">
+                      <span className="text-xs text-[hsl(var(--ethblox-text-primary))]">
+                        {licenseData?.usedInBuilds ?? 0}
+                      </span>
+                    </DetailRow>
+                    <DetailRow label="24h Curve Move">
+                      <span className="text-xs text-[hsl(var(--ethblox-text-primary))]">
+                        {typeof licenseData?.curve?.price24hChangePct === "number"
+                          ? `${licenseData.curve.price24hChangePct >= 0 ? "+" : ""}${licenseData.curve.price24hChangePct.toFixed(2)}%`
+                          : "--"}
+                      </span>
+                    </DetailRow>
+                    <DetailRow label="OpenSea">
+                      {licenseData?.os?.assetUrl ? (
+                        <Link
+                          href={licenseData.os.assetUrl}
+                          target="_blank"
+                          className="text-xs text-[hsl(var(--ethblox-accent-cyan))] hover:underline flex items-center gap-1"
+                        >
+                          View asset <ExternalLink className="h-3 w-3" />
+                        </Link>
+                      ) : (
+                        <span className="text-xs text-[hsl(var(--ethblox-text-secondary))]">Not configured</span>
+                      )}
+                    </DetailRow>
+                    <DetailRow label="Latest Sale">
+                      <span className="text-xs text-[hsl(var(--ethblox-text-secondary))]">
+                        {licenseData?.os?.latestSalePrice ?? "Coming soon"}
+                      </span>
+                    </DetailRow>
+                    {licenseActionError && (
+                      <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded px-2 py-1">
+                        {licenseActionError}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap gap-2 pt-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleRegisterLicense}
+                        disabled={licenseActionLoading !== null || Boolean(licenseData?.isRegistered)}
+                      >
+                        {licenseActionLoading === "register" ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+                        Register License
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleBuyLicense}
+                        disabled={licenseActionLoading !== null || !licenseData?.isRegistered}
+                        className="bg-[hsl(var(--ethblox-green))] text-black hover:bg-[hsl(var(--ethblox-green)/0.9)]"
+                      >
+                        {licenseActionLoading === "buy" ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+                        Buy License
+                      </Button>
+                    </div>
+                  </div>
+                </CollapsibleSection>
+              )}
+
               <CollapsibleSection
                 title="Details"
                 icon={<Database className="h-4 w-4 text-[hsl(var(--ethblox-text-tertiary))]" />}
@@ -302,7 +531,7 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
               >
                 <div className="space-y-3 mt-3">
                   <DetailRow label="Contract Address">
-                    <Link href={`https://sepolia.basescan.org/address/${CONTRACTS.BUILD_NFT}`} target="_blank"
+                    <Link href={`${explorerBase}/address/${CONTRACTS.BUILD_NFT}`} target="_blank"
                       className="text-[hsl(var(--ethblox-accent-cyan))] hover:underline text-xs font-mono flex items-center gap-1">
                       {shortenAddress(CONTRACTS.BUILD_NFT)}<ExternalLink className="h-3 w-3" />
                     </Link>
@@ -313,7 +542,7 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
                       <CopyButton text={tokenId} />
                     </div>
                   </DetailRow>
-                  <DetailRow label="Chain"><span className="text-xs text-[hsl(var(--ethblox-text-primary))]">Base Sepolia</span></DetailRow>
+                  <DetailRow label="Chain"><span className="text-xs text-[hsl(var(--ethblox-text-primary))]">{networkName}</span></DetailRow>
                   <DetailRow label="Token Standard"><span className="text-xs text-[hsl(var(--ethblox-text-primary))]">ERC-721</span></DetailRow>
                   {onchain?.geometryHash && (
                     <DetailRow label="Geometry Hash">
@@ -448,7 +677,7 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
                       )}
                       {appData.txHash && (
                         <DetailRow label="Tx Hash">
-                          <Link href={`https://sepolia.basescan.org/tx/${appData.txHash}`} target="_blank"
+                          <Link href={`${explorerBase}/tx/${appData.txHash}`} target="_blank"
                             className="text-xs font-mono text-[hsl(var(--ethblox-accent-cyan))] hover:underline flex items-center gap-1">
                             {shortenAddress(appData.txHash)}<ExternalLink className="h-3 w-3" />
                           </Link>
@@ -460,15 +689,15 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
                   </CollapsibleSection>
 
                   {/* Composition / provenance */}
-                  {appData.composition && Object.keys(appData.composition).length > 0 && (
+                  {appComponents.length > 0 && (
                     <CollapsibleSection title="Composition (Provenance)" icon={<Link2 className="h-4 w-4 text-[hsl(var(--ethblox-text-tertiary))]" />} defaultOpen>
                       <div className="space-y-2 mt-3">
-                        {Object.entries(appData.composition).map(([tid, info]: [string, any]) => (
-                          <div key={tid} className="flex items-center justify-between text-xs">
-                            <Link href={`/explore/${tid}`} className="text-[hsl(var(--ethblox-accent-cyan))] hover:underline font-mono">
-                              Token #{tid} - {info.name}
+                        {appComponents.map((row) => (
+                          <div key={row.id} className="flex items-center justify-between text-xs">
+                            <Link href={`/explore/${row.id}`} className="text-[hsl(var(--ethblox-accent-cyan))] hover:underline font-mono">
+                              Token #{row.id} - {row.name || `Token #${row.id}`}
                             </Link>
-                            <span className="text-[hsl(var(--ethblox-text-secondary))]">x{info.count}</span>
+                            <span className="text-[hsl(var(--ethblox-text-secondary))]">x{row.count}</span>
                           </div>
                         ))}
                       </div>
@@ -609,6 +838,34 @@ function IPFSPushSection({ tokenId }: { tokenId: string }) {
         )}
       </div>
     </CollapsibleSection>
+  )
+}
+
+function CompareRow({
+  label,
+  appValue,
+  ipfsValue,
+  mono = false,
+}: {
+  label: string
+  appValue: unknown
+  ipfsValue: unknown
+  mono?: boolean
+}) {
+  const appMissing = appValue === undefined || appValue === null || appValue === ""
+  const ipfsMissing = ipfsValue === undefined || ipfsValue === null || ipfsValue === ""
+  const appText = appMissing ? "MISSING" : String(appValue)
+  const ipfsText = ipfsMissing ? "MISSING" : String(ipfsValue)
+  const match = appText === ipfsText
+  return (
+    <div className="grid grid-cols-[110px_1fr_1fr_auto] gap-2 items-start">
+      <span className="text-[hsl(var(--ethblox-text-tertiary))]">{label}</span>
+      <span className={`${appMissing ? "text-yellow-300" : "text-[hsl(var(--ethblox-text-primary))]"} ${mono ? "font-mono truncate" : ""}`}>{appText}</span>
+      <span className={`${ipfsMissing ? "text-yellow-300" : "text-[hsl(var(--ethblox-text-primary))]"} ${mono ? "font-mono truncate" : ""}`}>{ipfsText}</span>
+      <span className={`text-[10px] px-1.5 py-0.5 rounded ${match ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-300"}`}>
+        {match ? "match" : "diff"}
+      </span>
+    </div>
   )
 }
 

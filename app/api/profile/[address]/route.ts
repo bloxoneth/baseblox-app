@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { redis } from "@/lib/redis"
+import { rk } from "@/lib/redis-keys"
 
 export interface ProfileData {
   address: string
@@ -23,7 +24,7 @@ export async function GET(
     }
 
     const normalizedAddress = address.toLowerCase()
-    const profile = await redis.get<ProfileData>(`profile:${normalizedAddress}`)
+    const profile = await redis.get<ProfileData>(rk(`profile:${normalizedAddress}`))
 
     if (!profile) {
       // Return default profile
@@ -87,7 +88,7 @@ export async function POST(
     }
 
     // Save to Redis (no expiration - profiles are permanent)
-    await redis.set(`profile:${normalizedAddress}`, profile)
+    await redis.set(rk(`profile:${normalizedAddress}`), profile)
 
     return NextResponse.json({ success: true, profile })
   } catch (error) {

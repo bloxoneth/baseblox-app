@@ -159,22 +159,40 @@ export function StandardBuildCapture({
 }: StandardBuildCaptureProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const glRef = useRef<THREE.WebGLRenderer | null>(null)
+  const sceneRef = useRef<THREE.Scene | null>(null)
+  const sceneCameraRef = useRef<THREE.Camera | null>(null)
+  const activeCameraRef = useRef<THREE.Camera | null>(null)
+  const cameraRef = useRef<THREE.Camera | null>(null)
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null)
   const [isCapturing, setIsCapturing] = useState(false)
   const [sceneReady, setSceneReady] = useState(false)
   const autoCaptureTriggered = useRef(false)
 
   const captureScreenshot = useCallback(() => {
-    if (!glRef.current) return null
+    const renderer = glRef.current
+    const scene = sceneRef.current
+    if (!renderer || !scene) return null
     setIsCapturing(true)
-    
-    // Force a render
-    glRef.current.render(glRef.current.domElement as any, {} as any)
-    
-    const dataUrl = glRef.current.domElement.toDataURL("image/png")
+
+    // Pick whichever camera is currently available.
+    const cam = cameraRef.current ?? activeCameraRef.current ?? sceneCameraRef.current
+
+    // Safer than instanceof (handles duplicate three builds too).
+    const isThreeCamera = (v: unknown): v is THREE.Camera =>
+      !!v && typeof v === "object" && (v as any).isCamera === true
+
+    if (!isThreeCamera(cam)) {
+      console.warn("captureScreenshot skipped: invalid camera", cam)
+      setIsCapturing(false)
+      return null
+    }
+
+    renderer.render(scene, cam)
+
+    const dataUrl = renderer.domElement.toDataURL("image/png")
     setScreenshotUrl(dataUrl)
     setIsCapturing(false)
-    
+
     onCapture?.(dataUrl)
     return dataUrl
   }, [onCapture])
@@ -217,6 +235,10 @@ export function StandardBuildCapture({
           }}
           onCreated={({ gl }) => {
             glRef.current = gl
+            sceneRef.current = gl.scene
+            sceneCameraRef.current = gl.camera
+            activeCameraRef.current = gl.camera
+            cameraRef.current = gl.camera
           }}
         >
           <CaptureScene bricks={bricks} onReady={handleSceneReady} />

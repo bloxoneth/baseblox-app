@@ -43,7 +43,7 @@ interface WalletDrawerProps {
 const ADMIN_ADDRESS = "0xe258B3C38CC85e251a1bdB3E60A8A85a071090b7"
 
 export function WalletDrawer({ open, onOpenChange }: WalletDrawerProps) {
-  const { account, disconnect, switchAccount } = useMetaMask()
+  const { account, disconnect, switchAccount, switchChain } = useMetaMask()
   const [builds, setBuilds] = useState<Build[]>([])
   const [mintedBuilds, setMintedBuilds] = useState<MintedBuild[]>([])
   const [loading, setLoading] = useState(true)
@@ -161,6 +161,14 @@ export function WalletDrawer({ open, onOpenChange }: WalletDrawerProps) {
     console.log("[v0] View minted build:", tokenId)
   }
 
+  const handleSwitchToAnvil = async () => {
+    try {
+      await switchChain("0x7a69")
+    } catch (error) {
+      console.error("[v0] Failed to switch to Anvil:", error)
+    }
+  }
+
   const handleBurnClick = (tokenId: string, e: React.MouseEvent) => {
     e.stopPropagation()
     setSelectedBurnToken(tokenId)
@@ -213,15 +221,25 @@ export function WalletDrawer({ open, onOpenChange }: WalletDrawerProps) {
               <div className="flex-1">
                 <p className="text-sm font-semibold text-yellow-200 mb-2">Wrong Network</p>
                 <p className="text-xs text-yellow-300/80 mb-3">
-                  Please switch to Base Sepolia to view your BLOX balance and interact with contracts.
+                  Please switch to the correct network to view your BLOX balance and interact with contracts.
                 </p>
-                <Button
-                  onClick={switchToBaseSepolia}
-                  size="sm"
-                  className="bg-yellow-500 hover:bg-yellow-600 text-black font-semibold"
-                >
-                  Switch to Base Sepolia
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={switchToBaseSepolia}
+                    size="sm"
+                    className="bg-yellow-500 hover:bg-yellow-600 text-black font-semibold"
+                  >
+                    Switch to Base Sepolia
+                  </Button>
+                  <Button
+                    onClick={handleSwitchToAnvil}
+                    size="sm"
+                    variant="outline"
+                    className="border-yellow-500/70 text-yellow-200 hover:bg-yellow-700/20"
+                  >
+                    Switch to Anvil
+                  </Button>
+                </div>
               </div>
             </div>
           )}

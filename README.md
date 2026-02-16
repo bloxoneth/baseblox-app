@@ -40,10 +40,44 @@ A 3D voxel brick builder built with Next.js, Three.js, and React Three Fiber.
 ### Development
 
 ```bash
+npm run local:up
 npm run dev
 ```
 
 Visit http://localhost:3000/build
+
+### Network Profiles
+
+Switch app env to local Anvil:
+
+```bash
+npm run env:anvil
+```
+
+One-step local bootstrap (persistent Anvil + env wiring):
+
+```bash
+npm run local:up
+```
+
+This reads local contract addresses from `/Users/seangardner/dev/ETHBLOX/ethblox-contracts/deployments/anvil.contracts.json` when present.
+
+Switch app env to Base Sepolia:
+
+```bash
+npm run env:sepolia
+```
+
+### Go-Live Checklist (App)
+
+- Set `NEXT_PUBLIC_ENABLE_NETWORK_SWITCHER=false` to hide header chain toggle.
+- Remove or hide any debug-only UI routes (`/mint-debug`, admin reset tools).
+- Confirm `NEXT_PUBLIC_*_ADDRESS` values point to audited production contracts only.
+- Set `NEXT_PUBLIC_NETWORK_NAME` and explorer URL to production network values.
+- Verify `REDIS_KEY_PREFIX` is production-scoped and isolated from staging/local data.
+- Disable dangerous admin operations in production (`ADMIN_RESET_ENABLED=false`, no flush).
+- Remove test wallet assumptions and local-chain-only helper copy from user-facing flows.
+- Run a final smoke pass: connect wallet, mint, explore token page, gallery render, burn flow.
 
 ### Deployment
 

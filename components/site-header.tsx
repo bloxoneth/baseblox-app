@@ -6,6 +6,8 @@ import { Menu } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { WalletConnect } from "@/components/wallet-connect"
+import { NetworkSwitcher } from "@/components/network-switcher"
+import { DataSourceSwitcher } from "@/components/data-source-switcher"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 
@@ -82,7 +84,9 @@ export function SiteHeader() {
           </nav>
 
           {/* Wallet Connect - Desktop */}
-          <div className="hidden md:block">
+          <div className="hidden md:flex items-center gap-3">
+            <DataSourceSwitcher compact />
+            <NetworkSwitcher compact />
             <WalletConnect variant="compact" />
           </div>
 
@@ -145,6 +149,12 @@ export function SiteHeader() {
                   PROFILE
                 </Link>
                 <div className="pt-4 mt-4 border-t border-[hsl(var(--ethblox-border))]">
+                  <div className="mb-3">
+                    <DataSourceSwitcher />
+                  </div>
+                  <div className="mb-3">
+                    <NetworkSwitcher />
+                  </div>
                   <WalletConnect variant="default" />
                 </div>
               </nav>

@@ -6,13 +6,12 @@ import { useMetaMask } from "@/contexts/metamask-context"
 import {
   CONTRACTS,
   BUILD_KIND,
-  FEE_PER_MINT,
   getBloxBalance,
   getBloxAllowance,
   approveBlox,
   getNextTokenId,
   mintBuildNFT,
-  mintBrick,
+  mintBuildNFTWithParams,
   mintBuild,
   getLicenseIds,
   getLicenseBalances,
@@ -188,7 +187,6 @@ export function useMintBuild(options: UseMintBuildOptions = {}) {
         const provider = getProvider()
         if (!provider) throw new Error("No provider available")
 
-        // Bricks don't require BLOX lock, just the mint fee
         if (!account || !isConnected) {
           throw new Error("Please connect your wallet")
         }
@@ -196,9 +194,27 @@ export function useMintBuild(options: UseMintBuildOptions = {}) {
           throw new Error("Please switch to Base Sepolia network")
         }
 
+        const brickMass = Math.max(1, params.spec.width * params.spec.depth)
+        const { needsBloxApproval, requiredBlox } = await checkRequirements(brickMass)
+        if (needsBloxApproval) {
+          setStep("approving-blox")
+          const approveTx = await approveBlox(provider, requiredBlox)
+          await approveTx.wait()
+        }
+
         // Mint the brick
         setStep("minting")
-        const mintTx = await mintBrick(provider, params.geometryHash, params.spec)
+        const mintTx = await mintBuildNFTWithParams(provider, {
+          geometryHash: params.geometryHash,
+          mass: brickMass,
+          uri: "",
+          componentBuildIds: [],
+          componentCounts: [],
+          kind: BUILD_KIND.BRICK,
+          width: params.spec.width,
+          depth: params.spec.depth,
+          density: params.spec.density,
+        })
         setTxHash(mintTx.hash)
 
         const receipt = await mintTx.wait()
@@ -234,7 +250,7 @@ export function useMintBuild(options: UseMintBuildOptions = {}) {
         throw err
       }
     },
-    [account, isConnected, isCorrectChain, getProvider, options],
+    [account, isConnected, isCorrectChain, getProvider, options, checkRequirements],
   )
 
   const mintBuildWithComponents = useCallback(

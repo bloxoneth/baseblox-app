@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -32,8 +32,10 @@ import {
   getNextTokenId,
   getLicenseIds,
   getLicenseBalances,
+  getComponentLicenseStatus,
   isLicenseApproved,
   approveBlox,
+  buyMissingLicensesForComponents,
   mintBuildNFTWithParams,
   addMintedHash,
   runMintDiagnostics,
@@ -42,6 +44,7 @@ import {
   type MintParams,
 } from "@/lib/contracts/ethblox-contracts"
 import { generateBuildHash } from "@/lib/build-hash"
+import { normalizeBrickKey } from "@/data/bricks"
 import type { Brick } from "@/lib/types"
 import { StandardBuildCapture } from "./StandardBuildCapture"
 
@@ -55,6 +58,8 @@ interface MintDebugData {
   totalBloxMass: number
   uniqueColors: number
   composition?: Record<string, { count: number; name: string }>
+  componentBuildIds?: Array<string | number>
+  componentCounts?: Array<string | number>
   metadata?: {
     buildWidth: number
     buildDepth: number
@@ -65,6 +70,8 @@ interface MintDebugData {
   account?: string
   timestamp: number
 }
+
+type CompositionMap = Record<string, { count: number; name: string }>
 
 interface ContractState {
   bloxBalance: bigint | null
@@ -123,10 +130,53 @@ function generateComponentsHash(componentIds: string[]): string {
   return ethers.keccak256(encoded)
 }
 
+function normalizeCompositionMap(debugData: MintDebugData | null): CompositionMap {
+  if (!debugData) return {}
+
+  const out: CompositionMap = {}
+  const put = (idRaw: unknown, countRaw: unknown, nameRaw?: unknown) => {
+    const id = String(idRaw ?? "").trim()
+    const count = Number(countRaw ?? 0)
+    if (!/^\d+$/.test(id) || Number(id) <= 0 || count <= 0) return
+    const existing = out[id]
+    out[id] = {
+      count: (existing?.count ?? 0) + count,
+      name: String(nameRaw ?? existing?.name ?? `Token #${id}`),
+    }
+  }
+
+  if (debugData.composition && Object.keys(debugData.composition).length > 0) {
+    for (const [id, data] of Object.entries(debugData.composition)) {
+      put(id, data?.count, data?.name)
+    }
+  }
+
+  if (Object.keys(out).length === 0) {
+    const ids = Array.isArray(debugData.componentBuildIds) ? debugData.componentBuildIds : []
+    const counts = Array.isArray(debugData.componentCounts) ? debugData.componentCounts : []
+    for (let i = 0; i < Math.min(ids.length, counts.length); i++) {
+      put(ids[i], counts[i])
+    }
+  }
+
+  if (Object.keys(out).length === 0) {
+    const metaComps = (debugData as any)?.metadata?.components
+    if (Array.isArray(metaComps)) {
+      for (const c of metaComps) {
+        put(c?.componentId ?? c?.id, c?.count, c?.name)
+      }
+    }
+  }
+
+  return out
+}
+
 export function MintDebugClient() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { account, isConnected, connect, switchChain } = useMetaMask()
+  const explorerBase = process.env.NEXT_PUBLIC_BLOCK_EXPLORER_URL ?? "https://sepolia.basescan.org"
+  const expectedNetworkName = process.env.NEXT_PUBLIC_NETWORK_NAME ?? "configured network"
   
   const [debugData, setDebugData] = useState<MintDebugData | null>(null)
   const [contractState, setContractState] = useState<ContractState>({
@@ -147,11 +197,38 @@ export function MintDebugClient() {
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null)
   const [skipChecks, setSkipChecks] = useState(false)
   const [minting, setMinting] = useState(false)
+  const [buyingLicenses, setBuyingLicenses] = useState(false)
+  const [autoBuyMissingLicenses, setAutoBuyMissingLicenses] = useState(true)
   const [approving, setApproving] = useState(false)
   const [mintTxHash, setMintTxHash] = useState<string | null>(null)
   const [mintError, setMintError] = useState<string | null>(null)
   const [diagnostics, setDiagnostics] = useState<Record<string, string> | null>(null)
   const [runningDiagnostics, setRunningDiagnostics] = useState(false)
+  const [baseBrickTokensByDensity, setBaseBrickTokensByDensity] = useState<Record<string, string>>({})
+  const [brickSpecToTokenId, setBrickSpecToTokenId] = useState<Record<string, string>>({})
+  const explicitCompositionMap = useMemo(() => normalizeCompositionMap(debugData), [debugData])
+  const compositionMap = useMemo(() => {
+    if (!debugData) return {}
+    if (Object.keys(explicitCompositionMap).length > 0) return explicitCompositionMap
+
+    const kind = detectKind(searchParams, debugData.bricks.length, explicitCompositionMap)
+    if (kind === BUILD_KIND.BRICK) return explicitCompositionMap
+    if (!Array.isArray(debugData.bricks) || debugData.bricks.length === 0) return explicitCompositionMap
+
+    const densFromUrl = Number(searchParams.get("density") || "")
+    const dens = Number.isFinite(densFromUrl) && densFromUrl > 0 ? densFromUrl : 1
+    const inferred: CompositionMap = {}
+
+    for (const b of debugData.bricks) {
+      const spec = normalizeBrickKey(Number(b.width || 1), Number(b.depth || 1), dens)
+      const tokenId = brickSpecToTokenId[spec]
+      if (!tokenId) continue
+      if (!inferred[tokenId]) inferred[tokenId] = { count: 0, name: spec }
+      inferred[tokenId].count += 1
+    }
+
+    return Object.keys(inferred).length > 0 ? inferred : explicitCompositionMap
+  }, [debugData, explicitCompositionMap, searchParams, brickSpecToTokenId])
 
   // Load debug data from sessionStorage or URL params (from BrickMintModal redirect)
   // Runs once on mount only - searchParams are stable from useSearchParams()
@@ -209,6 +286,20 @@ export function MintDebugClient() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Load canonical 1x1 base brick tokens by density (used for kind=0 component composition)
+  useEffect(() => {
+    fetch("/api/builds/check-minted")
+      .then((r) => r.json())
+      .then((data) => {
+        setBaseBrickTokensByDensity(data?.baseBrickTokensByDensity || {})
+        setBrickSpecToTokenId(data?.brickSpecToTokenId || {})
+      })
+      .catch(() => {
+        setBaseBrickTokensByDensity({})
+        setBrickSpecToTokenId({})
+      })
+  }, [])
+
   // Generate hash when data is loaded
   useEffect(() => {
     if (!debugData?.bricks || debugData.bricks.length === 0) return
@@ -241,6 +332,22 @@ export function MintDebugClient() {
       const expectedChainDecimal = parseInt(CONTRACTS.BASE_SEPOLIA_CHAIN_ID, 16)
       const isCorrectChain = currentChainDecimal === expectedChainDecimal
 
+      if (!isCorrectChain) {
+        setContractState({
+          bloxBalance: null,
+          bloxAllowance: null,
+          maxMass: null,
+          nextTokenId: null,
+          chainId,
+          isCorrectChain,
+          licenseIds: [],
+          licenseBalances: [],
+          licenseApproved: true,
+        })
+        setRefreshing(false)
+        return
+      }
+
       const provider = new ethers.BrowserProvider(ethereum)
 
       const [balance, allowance, maxMass, nextId] = await Promise.all([
@@ -250,9 +357,7 @@ export function MintDebugClient() {
         getNextTokenId(provider).catch(() => null),
       ])
 
-      const componentTokenIds = debugData?.composition 
-        ? Object.keys(debugData.composition).map(id => BigInt(id))
-        : []
+      const componentTokenIds = Object.keys(compositionMap).map(id => BigInt(id))
 
       let licenseIds: bigint[] = []
       let licenseBalances: bigint[] = []
@@ -300,7 +405,7 @@ export function MintDebugClient() {
     }, 1500)
 
     return () => clearTimeout(retryTimer)
-  }, [isConnected, account, debugData])
+  }, [isConnected, account, debugData, compositionMap])
 
   // Also poll for ethereum provider if wallet was previously connected but provider is slow to inject
   useEffect(() => {
@@ -370,18 +475,8 @@ export function MintDebugClient() {
   const buildMintParams = (): MintParams | null => {
     if (!debugData || !generatedHash) return null
     
-    const kind = detectKind(searchParams, debugData.bricks.length, debugData.composition)
-    const hasComponents = debugData.composition && Object.keys(debugData.composition).length > 0
-    
-    let componentIds: bigint[] = []
-    let componentCounts: bigint[] = []
-    
-    if (hasComponents && debugData.composition) {
-      const validComponents = Object.entries(debugData.composition)
-        .filter(([id, data]) => Number(id) > 0 && data.count > 0)
-      componentIds = validComponents.map(([id]) => BigInt(id))
-      componentCounts = validComponents.map(([, data]) => BigInt(data.count))
-    }
+    const kind = detectKind(searchParams, debugData.bricks.length, compositionMap)
+    const hasComponents = Object.keys(compositionMap).length > 0
 
     // Read density from URL params or sessionStorage data
     const urlDensity = searchParams.get("density")
@@ -394,11 +489,37 @@ export function MintDebugClient() {
         setMintError(`Density is required for brick mints. Got: ${mintDensity || "none"}. Valid values: ${validDensities.join(", ")}. Go back and select a density in the brick mint modal.`)
         return null
       }
+      if (debugData.baseWidth < 1 || debugData.baseDepth < 1 || debugData.baseWidth > 10 || debugData.baseDepth > 10) {
+        setMintError(`Brick dimensions must be within 1..10. Got ${debugData.baseWidth}x${debugData.baseDepth}.`)
+        return null
+      }
     }
     
     // For builds (kind > 0), density defaults to 1 (single assembly)
     if (kind !== BUILD_KIND.BRICK && !mintDensity) {
       mintDensity = 1
+    }
+
+    let componentIds: bigint[] = []
+    let componentCounts: bigint[] = []
+
+    if (kind === BUILD_KIND.BRICK) {
+      const area = debugData.baseWidth * debugData.baseDepth
+      const isPrimitive1x1 = area === 1
+      if (!isPrimitive1x1) {
+        const baseTokenId = baseBrickTokensByDensity[String(mintDensity)]
+        if (!baseTokenId) {
+          setMintError(`Missing base component 1x1-D${mintDensity}. Mint that primitive first, then mint ${debugData.baseWidth}x${debugData.baseDepth}-D${mintDensity}.`)
+          return null
+        }
+        componentIds = [BigInt(baseTokenId)]
+        componentCounts = [BigInt(area)]
+      }
+    } else if (hasComponents) {
+      const validComponents = Object.entries(compositionMap)
+        .filter(([id, data]) => Number(id) > 0 && data.count > 0)
+      componentIds = validComponents.map(([id]) => BigInt(id))
+      componentCounts = validComponents.map(([, data]) => BigInt(data.count))
     }
 
     return {
@@ -419,6 +540,16 @@ export function MintDebugClient() {
     if (!isConnected || !account || !debugData || !generatedHash) return
     setRunningDiagnostics(true)
     setDiagnostics(null)
+    if (!contractState.isCorrectChain) {
+      setDiagnostics({
+        "Network/Profile Mismatch": `Wallet chain does not match app profile (${expectedNetworkName}).`,
+        "Expected Chain ID": String(parseInt(CONTRACTS.BASE_SEPOLIA_CHAIN_ID, 16)),
+        "Current Chain ID": contractState.chainId ? String(parseInt(contractState.chainId, 16)) : "unknown",
+        "Fix": "Switch app profile (env:anvil or env:sepolia) OR switch wallet network.",
+      })
+      setRunningDiagnostics(false)
+      return
+    }
     
     try {
       const ethereum = (window as any).ethereum
@@ -522,6 +653,25 @@ export function MintDebugClient() {
         return
       }
 
+      if (params.componentBuildIds.length > 0) {
+        const status = await getComponentLicenseStatus(provider, account, params.componentBuildIds)
+        if (status.missingComponentBuildIds.length > 0) {
+          if (!autoBuyMissingLicenses) {
+            throw new Error(
+              `Missing licenses for component builds: ${status.missingComponentBuildIds.map((id) => id.toString()).join(", ")}. Buy licenses first or enable auto-buy.`,
+            )
+          }
+          const purchaseResult = await buyMissingLicensesForComponents(
+            provider,
+            account,
+            params.componentBuildIds,
+          )
+          if (purchaseResult.txHashes.length > 0 || purchaseResult.registeredBuilds.length > 0) {
+            await fetchContractState()
+          }
+        }
+      }
+
       // Send tx directly with gasLimit - no staticCall pre-check
       const tx = await mintBuildNFTWithParams(provider, params, forceSend)
       setMintTxHash(tx.hash)
@@ -588,7 +738,7 @@ export function MintDebugClient() {
               brickDepth: urlDepth ? parseInt(urlDepth) : debugData.baseDepth,
               
               // Composition (which existing NFTs are used in this build)
-              composition: debugData.composition,
+              composition: compositionMap,
               
               // Contract params (for verification / future IPFS upload)
               geometryHash: params.geometryHash,
@@ -638,6 +788,34 @@ export function MintDebugClient() {
     }
   }
 
+  const getDisplayComponentPayload = () => {
+    if (!debugData) return { ids: [] as string[], counts: [] as number[] }
+
+    const kind = detectKind(searchParams, debugData.bricks.length, compositionMap)
+    const mintDensity = parseInt(searchParams.get("density") || "1")
+
+    if (kind === BUILD_KIND.BRICK) {
+      const area = debugData.baseWidth * debugData.baseDepth
+      if (area === 1) return { ids: [] as string[], counts: [] as number[] }
+      const baseTokenId = baseBrickTokensByDensity[String(mintDensity)]
+      if (!baseTokenId) {
+        return { ids: [] as string[], counts: [] as number[], error: `Missing base 1x1-D${mintDensity}` }
+      }
+      return { ids: [String(baseTokenId)], counts: [area] }
+    }
+
+    if (Object.keys(compositionMap).length > 0) {
+      const validComponents = Object.entries(compositionMap)
+        .filter(([id, data]) => Number(id) > 0 && data.count > 0)
+      return {
+        ids: validComponents.map(([id]) => String(id)),
+        counts: validComponents.map(([, data]) => data.count),
+      }
+    }
+
+    return { ids: [] as string[], counts: [] as number[] }
+  }
+
   // Calculate validation results
   const getValidations = (): ValidationResult[] => {
     if (!debugData) return []
@@ -657,7 +835,7 @@ export function MintDebugClient() {
     const expectedChainDecimal = parseInt(CONTRACTS.BASE_SEPOLIA_CHAIN_ID, 16)
     validations.push({
       passed: contractState.isCorrectChain,
-      message: "Correct Network (Base Sepolia)",
+      message: `Correct Network (${expectedNetworkName})`,
       details: currentChainDecimal 
         ? `Current: ${currentChainDecimal} (Expected: ${expectedChainDecimal})`
         : "Unknown",
@@ -721,12 +899,16 @@ export function MintDebugClient() {
     }
 
     // Component licenses (if any)
-    if (debugData.composition && Object.keys(debugData.composition).length > 0) {
+    if (Object.keys(compositionMap).length > 0) {
       const hasAllLicenses = contractState.licenseBalances.every(b => b > 0n)
       validations.push({
-        passed: hasAllLicenses,
+        passed: hasAllLicenses || autoBuyMissingLicenses,
         message: "Component Licenses Owned",
-        details: `${contractState.licenseBalances.filter(b => b > 0n).length}/${contractState.licenseIds.length} licenses`,
+        details: hasAllLicenses
+          ? `${contractState.licenseBalances.filter(b => b > 0n).length}/${contractState.licenseIds.length} licenses`
+          : autoBuyMissingLicenses
+            ? `Missing licenses will be purchased before mint (${contractState.licenseBalances.filter(b => b > 0n).length}/${contractState.licenseIds.length} owned)`
+            : `${contractState.licenseBalances.filter(b => b > 0n).length}/${contractState.licenseIds.length} licenses`,
       })
 
       validations.push({
@@ -742,6 +924,33 @@ export function MintDebugClient() {
   const validations = getValidations()
   const allPassed = validations.length > 0 && validations.every(v => v.passed)
   const canMint = skipChecks || allPassed
+  const componentTokenIds = Object.keys(compositionMap).map((id) => BigInt(id))
+  const missingLicenseBuildIds = componentTokenIds.filter((_, i) => {
+    const id = contractState.licenseIds[i] ?? 0n
+    const bal = contractState.licenseBalances[i] ?? 0n
+    return id === 0n || bal < 1n
+  })
+
+  const handleBuyMissingLicenses = async () => {
+    if (!isConnected || !account) return
+    if (componentTokenIds.length === 0) return
+    setBuyingLicenses(true)
+    setMintError(null)
+    try {
+      const ethereum = (window as any).ethereum
+      if (!ethereum) throw new Error("No wallet found")
+      const provider = new ethers.BrowserProvider(ethereum)
+      const result = await buyMissingLicensesForComponents(provider, account, componentTokenIds)
+      await fetchContractState()
+      if (result.purchasedBuilds.length === 0 && result.registeredBuilds.length === 0) {
+        setMintError("No missing licenses were found.")
+      }
+    } catch (err: any) {
+      console.error("[v0] Buy licenses error:", err)
+      setMintError(err?.message || "Failed to buy missing licenses")
+    }
+    setBuyingLicenses(false)
+  }
 
   if (loading) {
     return (
@@ -875,16 +1084,8 @@ export function MintDebugClient() {
                   variant="ghost" 
                   size="sm" 
                   onClick={() => {
-                    const kind = detectKind(searchParams, debugData.bricks.length, debugData.composition)
-                    const hasComponents = debugData.composition && Object.keys(debugData.composition).length > 0
-                    let componentIds: string[] = []
-                    let componentCounts: number[] = []
-                    if (hasComponents && debugData.composition) {
-                      const validComponents = Object.entries(debugData.composition)
-                        .filter(([id, data]) => Number(id) > 0 && data.count > 0)
-                      componentIds = validComponents.map(([id]) => id)
-                      componentCounts = validComponents.map(([, data]) => data.count)
-                    }
+                    const kind = detectKind(searchParams, debugData.bricks.length, compositionMap)
+                    const componentPayload = getDisplayComponentPayload()
                     const mintDensityCopy = parseInt(searchParams.get("density") || "1")
                     const mintParams = {
                       geometryHash: generatedHash || "",
@@ -893,8 +1094,8 @@ export function MintDebugClient() {
                       density: mintDensityCopy,
                       width: debugData.baseWidth,
                       depth: debugData.baseDepth,
-                      componentBuildIds: componentIds,
-                      componentCounts: componentCounts,
+                      componentBuildIds: componentPayload.ids,
+                      componentCounts: componentPayload.counts,
                       payer: account?.toLowerCase() || "",
                       mintFeeWei: FEE_PER_MINT.toString()
                     }
@@ -910,16 +1111,8 @@ export function MintDebugClient() {
             <CardContent>
               <pre className="p-3 bg-[hsl(var(--ethblox-bg))] rounded-lg text-xs font-mono text-[hsl(var(--ethblox-green))] overflow-auto max-h-80">
 {(() => {
-  const kind = detectKind(searchParams, debugData.bricks.length, debugData.composition)
-  const hasComponents = debugData.composition && Object.keys(debugData.composition).length > 0
-  let componentIds: string[] = []
-  let componentCounts: number[] = []
-  if (hasComponents && debugData.composition) {
-    const validComponents = Object.entries(debugData.composition)
-      .filter(([id, data]) => Number(id) > 0 && data.count > 0)
-    componentIds = validComponents.map(([id]) => id)
-    componentCounts = validComponents.map(([, data]) => data.count)
-  }
+  const kind = detectKind(searchParams, debugData.bricks.length, compositionMap)
+  const componentPayload = getDisplayComponentPayload()
   const mintDensityDisplay = parseInt(searchParams.get("density") || "1")
   return JSON.stringify({
     geometryHash: generatedHash || "generating...",
@@ -928,8 +1121,9 @@ export function MintDebugClient() {
     density: mintDensityDisplay,
     width: debugData.baseWidth,
     depth: debugData.baseDepth,
-    componentBuildIds: componentIds,
-    componentCounts: componentCounts,
+    componentBuildIds: componentPayload.ids,
+    componentCounts: componentPayload.counts,
+    componentError: componentPayload.error,
     payer: account?.toLowerCase() || "not connected",
     mintFeeWei: FEE_PER_MINT.toString()
   }, null, 2)
@@ -949,12 +1143,11 @@ export function MintDebugClient() {
                   variant="ghost" 
                   size="sm" 
                   onClick={() => {
-                    const kind = detectKind(searchParams, debugData.bricks.length, debugData.composition)
-                    const componentIds = debugData.composition 
-                      ? Object.keys(debugData.composition) : []
+                    const kind = detectKind(searchParams, debugData.bricks.length, compositionMap)
+                    const componentPayload = getDisplayComponentPayload()
                     const mintDensity = parseInt(searchParams.get("density") || "1")
                     const specKey = generateSpecKey(debugData.baseWidth, debugData.baseDepth, mintDensity)
-                    const componentsHash = generateComponentsHash(componentIds)
+                    const componentsHash = generateComponentsHash(componentPayload.ids)
                     const metadata = {
                       name: debugData.buildName || `ETHBLOX #${contractState.nextTokenId?.toString() || "?"}`,
                       description: "ETHBLOX build/brick",
@@ -981,12 +1174,11 @@ export function MintDebugClient() {
             <CardContent>
               <pre className="p-3 bg-[hsl(var(--ethblox-bg))] rounded-lg text-xs font-mono text-[hsl(var(--ethblox-accent-cyan))] overflow-auto max-h-96">
 {(() => {
-  const kind = detectKind(searchParams, debugData.bricks.length, debugData.composition)
-  const componentIds = debugData.composition 
-    ? Object.keys(debugData.composition) : []
+  const kind = detectKind(searchParams, debugData.bricks.length, compositionMap)
+  const componentPayload = getDisplayComponentPayload()
   const mintDensity = parseInt(searchParams.get("density") || "1")
   const specKey = generateSpecKey(debugData.baseWidth, debugData.baseDepth, mintDensity)
-  const componentsHash = generateComponentsHash(componentIds)
+  const componentsHash = generateComponentsHash(componentPayload.ids)
   return JSON.stringify({
     name: debugData.buildName || `ETHBLOX #${contractState.nextTokenId?.toString() || "?"}`,
     description: "ETHBLOX build/brick",
@@ -1026,7 +1218,7 @@ export function MintDebugClient() {
                       {address.slice(0, 6)}...{address.slice(-4)}
                     </code>
                     <a 
-                      href={`https://sepolia.basescan.org/address/${address}`}
+                      href={`${explorerBase}/address/${address}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-[hsl(var(--ethblox-accent-cyan))]"
@@ -1242,6 +1434,36 @@ export function MintDebugClient() {
                 </div>
               )}
 
+              {componentTokenIds.length > 0 && (
+                <div className="p-3 bg-[hsl(var(--ethblox-bg))] rounded-lg border border-[hsl(var(--ethblox-border))] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-[hsl(var(--ethblox-text-primary))]">License handling</p>
+                    <Button
+                      variant={autoBuyMissingLicenses ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setAutoBuyMissingLicenses(!autoBuyMissingLicenses)}
+                      className={autoBuyMissingLicenses ? "bg-blue-600 hover:bg-blue-700 text-white" : ""}
+                    >
+                      {autoBuyMissingLicenses ? "Auto-buy ON" : "Auto-buy OFF"}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-[hsl(var(--ethblox-text-tertiary))]">
+                    Missing component licenses: {missingLicenseBuildIds.length}
+                  </p>
+                  {missingLicenseBuildIds.length > 0 && (
+                    <Button
+                      onClick={handleBuyMissingLicenses}
+                      disabled={buyingLicenses || !isConnected}
+                      variant="outline"
+                      className="w-full border-[hsl(var(--ethblox-accent-cyan))] text-[hsl(var(--ethblox-accent-cyan))] bg-transparent hover:bg-[hsl(var(--ethblox-accent-cyan)/0.1)]"
+                    >
+                      {buyingLicenses && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                      {buyingLicenses ? "Buying Missing Licenses..." : "Buy Missing Licenses Now"}
+                    </Button>
+                  )}
+                </div>
+              )}
+
               {/* Run Diagnostics Button */}
               <Button
                 onClick={handleRunDiagnostics}
@@ -1320,24 +1542,28 @@ export function MintDebugClient() {
               <div className="space-y-2">
                 <Button
                   onClick={() => handleMint(false)}
-                  disabled={minting || !isConnected || !generatedHash || (!canMint && !skipChecks)}
+                  disabled={minting || buyingLicenses || !isConnected || !generatedHash || (!canMint && !skipChecks)}
                   className="w-full bg-gradient-to-r from-yellow-400 to-yellow-500 hover:from-yellow-500 hover:to-yellow-600 text-black font-bold"
                 >
-                  {minting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                  {minting ? "Sending TX..." : `Mint NFT (${ethers.formatEther(FEE_PER_MINT)} ETH + 500k gas)`}
+                  {(minting || buyingLicenses) && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                  {buyingLicenses
+                    ? "Buying Licenses..."
+                    : minting
+                      ? "Sending TX..."
+                      : `Mint NFT (${ethers.formatEther(FEE_PER_MINT)} ETH + 500k gas)`}
                 </Button>
                 <Button
                   onClick={() => handleMint(true)}
-                  disabled={minting || !isConnected || !generatedHash}
+                  disabled={minting || buyingLicenses || !isConnected || !generatedHash}
                   variant="outline"
                   className="w-full border-red-500/50 text-red-400 bg-transparent hover:bg-red-500/10"
                 >
-                  {minting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                  {(minting || buyingLicenses) && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                   Force Send (1M gas limit)
                 </Button>
                 <p className="text-xs text-[hsl(var(--ethblox-text-tertiary))] text-center">
-                  Both buttons bypass estimateGas. Force Send uses a higher 1M gas limit.
-                  Run diagnostics first to check requirements.
+                  If auto-buy is ON, missing component licenses are purchased before mint.
+                  Mint + license purchase are sequential transactions, not a single on-chain atomic call.
                 </p>
               </div>
 
@@ -1346,7 +1572,7 @@ export function MintDebugClient() {
                 <div className="p-3 bg-green-500/10 rounded-lg border border-green-500/30">
                   <p className="text-sm font-medium text-green-400 mb-1">Transaction Submitted!</p>
                   <a 
-                    href={`https://sepolia.basescan.org/tx/${mintTxHash}`}
+                    href={`${explorerBase}/tx/${mintTxHash}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-xs text-[hsl(var(--ethblox-accent-cyan))] flex items-center gap-1 hover:underline"

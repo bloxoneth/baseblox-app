@@ -21,14 +21,14 @@ function authorize(request: NextRequest): string | null {
 // GET - Preview the metadata that would be pushed
 export async function GET(
   request: NextRequest,
-  { params }: { params: { tokenId: string } }
+  context: { params: Promise<{ tokenId: string }> }
 ) {
   const authError = authorize(request)
   if (authError) {
     return NextResponse.json({ error: authError }, { status: authError.includes("configured") ? 500 : 401 })
   }
 
-  const { tokenId } = params
+  const { tokenId } = await context.params
   const metadata = await buildMetadataForToken(tokenId)
   if (!metadata) {
     return NextResponse.json({ error: "No app data found for token" }, { status: 404 })
@@ -39,14 +39,14 @@ export async function GET(
 // POST - Push metadata JSON to IPFS via Lighthouse
 export async function POST(
   request: NextRequest,
-  { params }: { params: { tokenId: string } }
+  context: { params: Promise<{ tokenId: string }> }
 ) {
   const authError = authorize(request)
   if (authError) {
     return NextResponse.json({ error: authError }, { status: authError.includes("configured") ? 500 : 401 })
   }
 
-  const { tokenId } = params
+  const { tokenId } = await context.params
 
   if (!LIGHTHOUSE_API_KEY) {
     return NextResponse.json(

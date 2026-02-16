@@ -9,7 +9,7 @@ export function isValidDensity(d: number): d is ValidDensity {
 }
 
 export function isValidBrickDimension(n: number): boolean {
-  return Number.isInteger(n) && n >= 1 && n <= 20
+  return Number.isInteger(n) && n >= 1 && n <= 10
 }
 
 /**
@@ -35,8 +35,8 @@ export function validateBrickParams(
   depth: number,
   density: number
 ): string | null {
-  if (!isValidBrickDimension(width)) return `Invalid width: ${width} (must be 1-20)`
-  if (!isValidBrickDimension(depth)) return `Invalid depth: ${depth} (must be 1-20)`
+  if (!isValidBrickDimension(width)) return `Invalid width: ${width} (must be 1-10)`
+  if (!isValidBrickDimension(depth)) return `Invalid depth: ${depth} (must be 1-10)`
   if (!isValidDensity(density)) return `Invalid density: ${density} (must be one of ${VALID_DENSITIES.join(", ")})`
   return null
 }

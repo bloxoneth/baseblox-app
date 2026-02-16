@@ -23,6 +23,8 @@ import { Copy, Check, Edit3, ExternalLink, Download, User, Star, Layers } from "
 import { CONTRACTS, tokenImageGatewayURL } from "@/lib/contracts/ethblox-contracts"
 import { calculateTotalBlox } from "@/lib/brick-utils"
 import type { Brick } from "@/lib/types"
+import { fetchWithDataSource, useDataSourceMode } from "@/lib/data-source"
+import { BuildVoxelPreview } from "@/components/preview/BuildVoxelPreview"
 
 interface ProfileData {
   address: string
@@ -58,11 +60,11 @@ interface ProfileClientProps {
 
 export default function ProfileClient({ address }: ProfileClientProps) {
   const { account, isConnected } = useMetaMask()
-  const { balance: connectedBalance, isCorrectChain } = useBloxBalance()
+  const { balance: profileChainBalance, isCorrectChain } = useBloxBalance(address)
+  const sourceMode = useDataSourceMode()
   const { toast } = useToast()
 
   const [profile, setProfile] = useState<ProfileData | null>(null)
-  const [profileBalance, setProfileBalance] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
@@ -77,6 +79,7 @@ export default function ProfileClient({ address }: ProfileClientProps) {
   // Builds state
   const [mintedBuilds, setMintedBuilds] = useState<MintedBuild[]>([])
   const [buildsLoading, setBuildsLoading] = useState(true)
+  const [pfpImageFailed, setPfpImageFailed] = useState(false)
   
   const isOwnProfile = useMemo(() => {
     return account?.toLowerCase() === address.toLowerCase()
@@ -91,7 +94,11 @@ export default function ProfileClient({ address }: ProfileClientProps) {
     fetchProfile()
     fetchBuilds()
     // fetchProfileBalance() // Comment out the original fetchProfileBalance function call
-  }, [address])
+  }, [address, sourceMode])
+
+  useEffect(() => {
+    setPfpImageFailed(false)
+  }, [profile?.pfpTokenId])
 
   // Fetch BLOX balance for the profile address (works for any address)
   // const fetchProfileBalance = async () => { // Comment out the original fetchProfileBalance function
@@ -149,7 +156,7 @@ export default function ProfileClient({ address }: ProfileClientProps) {
   const fetchBuilds = async () => {
     setBuildsLoading(true)
     try {
-      const response = await fetch("/api/builds/minted")
+      const response = await fetchWithDataSource("/api/builds/minted")
       if (response.ok) {
         const data = await response.json()
         
@@ -162,7 +169,7 @@ export default function ProfileClient({ address }: ProfileClientProps) {
         const buildsWithBricks = await Promise.all(
           userBuilds.map(async (build: MintedBuild) => {
             try {
-              const buildResponse = await fetch(`/api/builds/token/${build.tokenId}`)
+              const buildResponse = await fetchWithDataSource(`/api/builds/token/${build.tokenId}`)
               if (buildResponse.ok) {
                 const fullBuildData = await buildResponse.json()
                 return { 
@@ -246,7 +253,7 @@ export default function ProfileClient({ address }: ProfileClientProps) {
 
   const handleLoadBuild = async (tokenId: string) => {
     try {
-      const response = await fetch(`/api/builds/token/${tokenId}`)
+      const response = await fetchWithDataSource(`/api/builds/token/${tokenId}`)
       if (response.ok) {
         const buildData = await response.json()
         if (typeof window !== "undefined") {
@@ -340,11 +347,18 @@ export default function ProfileClient({ address }: ProfileClientProps) {
               {/* Avatar - IPFS Image PFP */}
               <div className="w-24 h-24 rounded-xl bg-[hsl(var(--ethblox-surface-elevated))] overflow-hidden shrink-0 border border-[hsl(var(--ethblox-border))]">
                 {profile?.pfpTokenId ? (
-                  <img
-                    src={tokenImageGatewayURL(profile.pfpTokenId)}
-                    alt={`PFP #${profile.pfpTokenId}`}
-                    className="w-full h-full object-contain bg-[hsl(var(--ethblox-bg))]"
-                  />
+                  pfpImageFailed ? (
+                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[hsl(var(--ethblox-yellow))] to-[hsl(var(--ethblox-accent-cyan))]">
+                      <User className="h-10 w-10 text-black" />
+                    </div>
+                  ) : (
+                    <img
+                      src={tokenImageGatewayURL(profile.pfpTokenId)}
+                      alt={`PFP #${profile.pfpTokenId}`}
+                      className="w-full h-full object-contain bg-[hsl(var(--ethblox-bg))]"
+                      onError={() => setPfpImageFailed(true)}
+                    />
+                  )
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[hsl(var(--ethblox-yellow))] to-[hsl(var(--ethblox-accent-cyan))]">
                     <User className="h-10 w-10 text-black" />
@@ -398,7 +412,7 @@ export default function ProfileClient({ address }: ProfileClientProps) {
             <CardContent className="pt-4 pb-4">
               <p className="text-xs text-[hsl(var(--ethblox-text-tertiary))] uppercase tracking-wider mb-1">BLOX</p>
               <p className="text-2xl font-bold text-[hsl(var(--ethblox-text-primary))]">
-                {profileBalance || "0.00"}
+                {isCorrectChain ? (profileChainBalance || "0.00") : "--"}
               </p>
             </CardContent>
           </Card>
@@ -651,11 +665,12 @@ function BuildCard({
       {/* IPFS Image */}
       <Link href={`/explore/${build.tokenId}`} className="block">
         <div className="w-full aspect-square bg-[hsl(var(--ethblox-bg))] relative overflow-hidden">
-          <img
-            src={imageUrl}
-            alt={name}
-            className="w-full h-full object-contain hover:scale-105 transition-transform duration-300"
-            loading="lazy"
+          <BuildVoxelPreview
+            bricks={build.bricks}
+            geometryHash={build.geometryHash || build.buildHash}
+            tokenId={build.tokenId}
+            imageUrl={imageUrl}
+            className="w-full h-full"
           />
           <span className="absolute top-2 right-2 text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/60 text-white backdrop-blur-sm">
             #{build.tokenId}

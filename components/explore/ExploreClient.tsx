@@ -7,15 +7,23 @@ import { Button } from "@/components/ui/button"
 import { Box, Layers, Hash, Search, SlidersHorizontal } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import Link from "next/link"
-import { tokenImageGatewayURL } from "@/lib/contracts/ethblox-contracts"
 import type { Build } from "@/lib/types"
+import { BuildVoxelPreview } from "@/components/preview/BuildVoxelPreview"
+import { fetchWithDataSource, useDataSourceMode } from "@/lib/data-source"
 
-const fetcher = (url: string) => fetch(url).then(r => r.json())
+const fetcher = (url: string) => fetchWithDataSource(url).then(r => r.json())
 
 export function ExploreClient() {
-  const { data: builds, isLoading } = useSWR<Build[]>("/api/builds", fetcher, {
+  const networkName = process.env.NEXT_PUBLIC_NETWORK_NAME ?? "Base Sepolia"
+  const sourceMode = useDataSourceMode()
+  const { data, isLoading } = useSWR<{ builds: Build[]; source?: string; missing?: string[] }>(
+    `/api/builds/minted?source=${sourceMode}`,
+    fetcher,
+    {
     revalidateOnFocus: false,
-  })
+    },
+  )
+  const builds = data?.builds ?? []
   const [search, setSearch] = useState("")
   const [kindFilter, setKindFilter] = useState<"all" | "brick" | "build">("all")
 
@@ -41,7 +49,7 @@ export function ExploreClient() {
           Explore Builds
         </h1>
         <p className="text-[hsl(var(--ethblox-text-secondary))]">
-          {mintedBuilds.length} minted NFTs on Base Sepolia
+          {mintedBuilds.length} minted NFTs on {networkName}
         </p>
       </div>
 
@@ -73,6 +81,12 @@ export function ExploreClient() {
           ))}
         </div>
       </div>
+
+      {sourceMode === "truth" && (data?.missing?.length ?? 0) > 0 && (
+        <div className="mb-4 rounded border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-200">
+          Truth mode missing: {data?.missing?.join(", ")}
+        </div>
+      )}
 
       {/* Loading */}
       {isLoading && (
@@ -138,7 +152,6 @@ function BuildCard({ build }: { build: Build }) {
     : build.baseWidth && build.baseDepth
       ? `${build.baseWidth}x${build.baseDepth}`
       : null
-  const imageUrl = build.tokenId ? tokenImageGatewayURL(build.tokenId) : null
   const massLabel = build.mass ? `${build.mass} BLOX` : null
 
   return (
@@ -146,18 +159,12 @@ function BuildCard({ build }: { build: Build }) {
       <Card className="bg-[hsl(var(--ethblox-surface))] border-[hsl(var(--ethblox-border))] hover:border-[hsl(var(--ethblox-green)/0.5)] transition-all cursor-pointer group overflow-hidden">
         {/* Image */}
         <div className="aspect-square bg-[hsl(var(--ethblox-bg))] relative overflow-hidden">
-          {imageUrl ? (
-            <img
-              src={imageUrl}
-              alt={build.name || `Build #${build.tokenId}`}
-              className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
-              loading="lazy"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center">
-              <Box className="h-8 w-8 text-[hsl(var(--ethblox-text-tertiary))]" />
-            </div>
-          )}
+          <BuildVoxelPreview
+            bricks={build.bricks}
+            geometryHash={build.geometryHash || build.buildHash}
+            tokenId={build.tokenId}
+            className="h-full w-full"
+          />
           {/* Token ID badge */}
           <span className="absolute top-2 right-2 text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/60 text-white backdrop-blur-sm">
             #{build.tokenId}

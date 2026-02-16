@@ -43,18 +43,28 @@ export const BUILD_KIND = {
   BUILD: 1, // kind>0 for composite builds
 } as const
 
-// Network: Base Sepolia (chain ID 84532)
-export const CHAIN_ID = 84532
-export const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org"
+// Network: configurable via env, defaults to Base Sepolia
+const DEFAULT_CHAIN_ID = 84532
+const DEFAULT_CHAIN_HEX = "0x14a34"
+export const CHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? DEFAULT_CHAIN_ID)
+export const RPC_URL =
+  process.env.NEXT_PUBLIC_RPC_URL ||
+  process.env.BASE_SEPOLIA_RPC_URL ||
+  "https://sepolia.base.org"
 
-// Contract addresses on Base Sepolia
+// Contract addresses (env override with Base Sepolia fallback)
 export const CONTRACTS = {
-  MOCK_BLOX: "0x6578d53995FEB0e486135b893B8bC16AE1a5Ec52",
-  BUILD_NFT: "0x6Da8ABFeCfd468E6CfCc551E014388f7B279f1A3",
-  LICENSE_REGISTRY: "0x6Fe315D0CA4EB570dC96d2b1C7E2a287d492Cc5A",
-  LICENSE_NFT: "0xfEb8dCa56E849E91E7D3B4a2Ba2673Bb5FDf080E",
-  DISTRIBUTOR: "0xf9b225DAbD233a28da36C3379197bD165759E865",
-  BASE_SEPOLIA_CHAIN_ID: "0x14a34", // 84532
+  MOCK_BLOX:
+    process.env.NEXT_PUBLIC_BLOX_ADDRESS ?? "0x6578d53995FEB0e486135b893B8bC16AE1a5Ec52",
+  BUILD_NFT:
+    process.env.NEXT_PUBLIC_BUILDNFT_ADDRESS ?? "0x6Da8ABFeCfd468E6CfCc551E014388f7B279f1A3",
+  LICENSE_REGISTRY:
+    process.env.NEXT_PUBLIC_LICENSE_REGISTRY_ADDRESS ?? "0x6Fe315D0CA4EB570dC96d2b1C7E2a287d492Cc5A",
+  LICENSE_NFT:
+    process.env.NEXT_PUBLIC_LICENSE_NFT_ADDRESS ?? "0xfEb8dCa56E849E91E7D3B4a2Ba2673Bb5FDf080E",
+  DISTRIBUTOR:
+    process.env.NEXT_PUBLIC_DISTRIBUTOR_ADDRESS ?? "0xf9b225DAbD233a28da36C3379197bD165759E865",
+  BASE_SEPOLIA_CHAIN_ID: process.env.NEXT_PUBLIC_CHAIN_HEX ?? DEFAULT_CHAIN_HEX,
 }
 
 // Minimal ABIs
@@ -75,6 +85,10 @@ export const BUILD_NFT_ABI = [
   "function isMinter(address) view returns (bool)",
   "function mintingOpen() view returns (bool)",
   // State reading
+  "function kindOf(uint256 tokenId) view returns (uint8)",
+  "function geometryOf(uint256 tokenId) view returns (bytes32)",
+  "function brickSpecOf(uint256 tokenId) view returns (uint8 width, uint8 depth, uint16 density)",
+  "function lockedBloxOf(uint256 tokenId) view returns (uint256)",
   "function kind(uint256 tokenId) view returns (uint8)",
   "function geometryHash(uint256 tokenId) view returns (bytes32)",
   "function brickSpec(uint256 tokenId) view returns (uint8 width, uint8 depth, uint16 density)",
@@ -84,12 +98,16 @@ export const BUILD_NFT_ABI = [
   "function nextTokenId() view returns (uint256)",
   "function hashToTokenId(bytes32) view returns (uint256)",
   "function paused() view returns (bool)",
+  "function blox() view returns (address)",
   "function bloxToken() view returns (address)",
+  "function FEE_PER_MINT() view returns (uint256)",
   "function mintFee() view returns (uint256)",
   "function owner() view returns (address)",
   // ERC721 standard
   "function balanceOf(address owner) view returns (uint256)",
   "function ownerOf(uint256 tokenId) view returns (address)",
+  "function exists(uint256 tokenId) view returns (bool)",
+  "function safeOwnerOf(uint256 tokenId) view returns (address)",
   "function tokenURI(uint256 tokenId) view returns (string)",
   // Burn (only for builds, not bricks)
   "function burn(uint256 tokenId)",
@@ -99,6 +117,10 @@ export const BUILD_NFT_ABI = [
 
 // LicenseRegistry ABI - maps component tokenIds to license IDs
 export const LICENSE_REGISTRY_ABI = [
+  "function licenseIdForBuild(uint256 buildId) view returns (uint256)",
+  "function quote(uint256 buildId, uint256 qty) view returns (uint256)",
+  "function mintLicenseForBuild(uint256 buildId, uint256 qty) payable",
+  "function registerBuild(uint256 buildId, bytes32 expectedGeometryHash)",
   "function getLicenseId(uint256 componentTokenId) view returns (uint256)",
   "function getLicenseIds(uint256[] calldata componentTokenIds) view returns (uint256[])",
   "function isLicenseRequired(uint256 componentTokenId) view returns (bool)",
@@ -181,9 +203,17 @@ export async function mintBuildNFT(
   geometryHash: string,
   mass: number,
 ): Promise<ethers.ContractTransactionResponse> {
-  const signer = await provider.getSigner()
-  const contract = new ethers.Contract(CONTRACTS.BUILD_NFT, BUILD_NFT_ABI, signer)
-  return await contract.mint(geometryHash, mass)
+  return mintBuildNFTWithParams(provider, {
+    geometryHash,
+    mass,
+    uri: "",
+    componentBuildIds: [],
+    componentCounts: [],
+    kind: 1,
+    width: 0,
+    depth: 0,
+    density: 1,
+  })
 }
 
 // New mint function with correct payload format
@@ -213,8 +243,8 @@ export async function runMintDiagnostics(
     
     // Network
     const network = await provider.getNetwork()
-    results["Chain ID"] = `${network.chainId} (expected: 84532)`
-    results["Correct Chain"] = network.chainId === 84532n ? "YES" : "NO"
+    results["Chain ID"] = `${network.chainId} (expected: ${CHAIN_ID})`
+    results["Correct Chain"] = network.chainId === BigInt(CHAIN_ID) ? "YES" : "NO"
     
     // Contract state checks
     results["--- CONTRACT STATE ---"] = ""
@@ -225,16 +255,38 @@ export async function runMintDiagnostics(
     } catch { results["Contract Paused"] = "N/A (no paused() function)" }
     
     try {
-      const bloxTokenAddr = await buildContract.bloxToken()
+      const bloxTokenAddr = await buildContract.blox()
       results["Contract BLOX Token Addr"] = bloxTokenAddr
       results["BLOX Addr Matches Our Config"] = bloxTokenAddr.toLowerCase() === CONTRACTS.MOCK_BLOX.toLowerCase() ? "YES" : `NO! Contract uses ${bloxTokenAddr}, we use ${CONTRACTS.MOCK_BLOX}`
-    } catch { results["Contract BLOX Token Addr"] = "N/A (no bloxToken() function)" }
+    } catch {
+      try {
+        const bloxTokenAddr = await buildContract.bloxToken()
+        results["Contract BLOX Token Addr"] = bloxTokenAddr
+        results["BLOX Addr Matches Our Config"] =
+          bloxTokenAddr.toLowerCase() === CONTRACTS.MOCK_BLOX.toLowerCase()
+            ? "YES"
+            : `NO! Contract uses ${bloxTokenAddr}, we use ${CONTRACTS.MOCK_BLOX}`
+      } catch {
+        results["Contract BLOX Token Addr"] = "N/A (no blox/bloxToken function)"
+      }
+    }
     
     try {
-      const onChainFee = await buildContract.mintFee()
+      const onChainFee = await buildContract.FEE_PER_MINT()
       results["On-chain Mint Fee"] = `${ethers.formatEther(onChainFee)} ETH (raw: ${onChainFee.toString()})`
       results["Our Fee Matches"] = onChainFee === FEE_PER_MINT ? "YES" : `NO! Contract wants ${ethers.formatEther(onChainFee)} ETH, we send ${ethers.formatEther(FEE_PER_MINT)} ETH`
-    } catch { results["On-chain Mint Fee"] = "N/A (no mintFee() function)" }
+    } catch {
+      try {
+        const onChainFee = await buildContract.mintFee()
+        results["On-chain Mint Fee"] = `${ethers.formatEther(onChainFee)} ETH (raw: ${onChainFee.toString()})`
+        results["Our Fee Matches"] =
+          onChainFee === FEE_PER_MINT
+            ? "YES"
+            : `NO! Contract wants ${ethers.formatEther(onChainFee)} ETH, we send ${ethers.formatEther(FEE_PER_MINT)} ETH`
+      } catch {
+        results["On-chain Mint Fee"] = "N/A (no fee getter)"
+      }
+    }
     
     try {
       const contractOwner = await buildContract.owner()
@@ -474,10 +526,17 @@ export async function mintBrick(
   geometryHash: string,
   spec: BrickSpec,
 ): Promise<ethers.ContractTransactionResponse> {
-  const signer = await provider.getSigner()
-  const contract = new ethers.Contract(CONTRACTS.BUILD_NFT, BUILD_NFT_ABI, signer)
-  return await contract.mintBrick(geometryHash, spec.width, spec.depth, spec.density, {
-    value: FEE_PER_MINT,
+  const mass = Math.max(1, spec.width * spec.depth)
+  return mintBuildNFTWithParams(provider, {
+    geometryHash,
+    mass,
+    uri: "",
+    componentBuildIds: [],
+    componentCounts: [],
+    kind: 0,
+    width: spec.width,
+    depth: spec.depth,
+    density: spec.density,
   })
 }
 
@@ -490,10 +549,16 @@ export async function mintBuild(
   kind: number,
   componentTokenIds: bigint[],
 ): Promise<ethers.ContractTransactionResponse> {
-  const signer = await provider.getSigner()
-  const contract = new ethers.Contract(CONTRACTS.BUILD_NFT, BUILD_NFT_ABI, signer)
-  return await contract.mintBuild(geometryHash, mass, kind, componentTokenIds, {
-    value: FEE_PER_MINT,
+  return mintBuildNFTWithParams(provider, {
+    geometryHash,
+    mass,
+    uri: "",
+    componentBuildIds: componentTokenIds,
+    componentCounts: componentTokenIds.map(() => 1n),
+    kind,
+    width: 0,
+    depth: 0,
+    density: 1,
   })
 }
 
@@ -508,7 +573,145 @@ export async function getLicenseIds(
     return []
   }
   const contract = new ethers.Contract(CONTRACTS.LICENSE_REGISTRY, LICENSE_REGISTRY_ABI, provider)
-  return await contract.getLicenseIds(componentTokenIds)
+  try {
+    return await contract.getLicenseIds(componentTokenIds)
+  } catch {
+    const ids: bigint[] = []
+    for (const tokenId of componentTokenIds) {
+      ids.push(await contract.licenseIdForBuild(tokenId))
+    }
+    return ids
+  }
+}
+
+export interface ComponentLicenseStatus {
+  componentBuildIds: bigint[]
+  licenseIds: bigint[]
+  balances: bigint[]
+  missingComponentBuildIds: bigint[]
+  missingLicenseIds: bigint[]
+}
+
+export async function getComponentLicenseStatus(
+  provider: ethers.BrowserProvider,
+  account: string,
+  componentBuildIds: bigint[],
+): Promise<ComponentLicenseStatus> {
+  const licenseIds = await getLicenseIds(provider, componentBuildIds)
+  const balances =
+    licenseIds.length > 0 ? await getLicenseBalances(provider, account, licenseIds) : []
+  const missingComponentBuildIds: bigint[] = []
+  const missingLicenseIds: bigint[] = []
+
+  for (let i = 0; i < componentBuildIds.length; i++) {
+    const licenseId = licenseIds[i] ?? 0n
+    const balance = balances[i] ?? 0n
+    if (licenseId === 0n || balance < 1n) {
+      missingComponentBuildIds.push(componentBuildIds[i])
+      if (licenseId > 0n) missingLicenseIds.push(licenseId)
+    }
+  }
+
+  return {
+    componentBuildIds,
+    licenseIds,
+    balances,
+    missingComponentBuildIds,
+    missingLicenseIds,
+  }
+}
+
+export async function registerBuildLicenseIfOwner(
+  provider: ethers.BrowserProvider,
+  buildId: bigint,
+): Promise<boolean> {
+  const signer = await provider.getSigner()
+  const registry = new ethers.Contract(CONTRACTS.LICENSE_REGISTRY, LICENSE_REGISTRY_ABI, signer)
+  const build = new ethers.Contract(CONTRACTS.BUILD_NFT, BUILD_NFT_ABI, provider)
+
+  const existing = await registry.licenseIdForBuild(buildId)
+  if (existing > 0n) return false
+
+  try {
+    const exists = await build.exists(buildId).catch(() => null)
+    if (exists === false) {
+      throw new Error(
+        `Build #${buildId.toString()} does not exist on the connected network. Check chain selection and component token IDs.`,
+      )
+    }
+
+    await build.ownerOf(buildId)
+  } catch (error: any) {
+    throw new Error(
+      `Cannot register license for build #${buildId.toString()}: ${error?.message || "build not found or not active on this chain"}`,
+    )
+  }
+
+  const geometryHash = await build.geometryOf(buildId)
+  const tx = await registry.registerBuild(buildId, geometryHash)
+  await tx.wait()
+  return true
+}
+
+export async function quoteLicenseForBuild(
+  provider: ethers.BrowserProvider,
+  buildId: bigint,
+  qty = 1n,
+): Promise<bigint> {
+  const registry = new ethers.Contract(CONTRACTS.LICENSE_REGISTRY, LICENSE_REGISTRY_ABI, provider)
+  return await registry.quote(buildId, qty)
+}
+
+export async function mintLicenseForBuild(
+  provider: ethers.BrowserProvider,
+  buildId: bigint,
+  qty = 1n,
+): Promise<ethers.ContractTransactionResponse> {
+  const signer = await provider.getSigner()
+  const registry = new ethers.Contract(CONTRACTS.LICENSE_REGISTRY, LICENSE_REGISTRY_ABI, signer)
+  const price = await registry.quote(buildId, qty)
+  return await registry.mintLicenseForBuild(buildId, qty, { value: price })
+}
+
+export interface LicensePurchaseResult {
+  registeredBuilds: bigint[]
+  purchasedBuilds: bigint[]
+  txHashes: string[]
+}
+
+export async function buyMissingLicensesForComponents(
+  provider: ethers.BrowserProvider,
+  account: string,
+  componentBuildIds: bigint[],
+): Promise<LicensePurchaseResult> {
+  const uniqueBuildIds = Array.from(new Set(componentBuildIds.map((id) => id.toString()))).map(
+    (id) => BigInt(id),
+  )
+
+  const statusBefore = await getComponentLicenseStatus(provider, account, uniqueBuildIds)
+  const targetBuildIds = statusBefore.missingComponentBuildIds
+  const result: LicensePurchaseResult = { registeredBuilds: [], purchasedBuilds: [], txHashes: [] }
+
+  for (const buildId of targetBuildIds) {
+    const licenseIdBefore = (
+      await getLicenseIds(provider, [buildId])
+    )[0] ?? 0n
+    if (licenseIdBefore === 0n) {
+      const registered = await registerBuildLicenseIfOwner(provider, buildId)
+      if (registered) result.registeredBuilds.push(buildId)
+    }
+
+    const statusNow = await getComponentLicenseStatus(provider, account, [buildId])
+    const hasLicense = (statusNow.balances[0] ?? 0n) >= 1n
+    if (!hasLicense) {
+      const tx = await mintLicenseForBuild(provider, buildId, 1n)
+      result.txHashes.push(tx.hash)
+      await tx.wait()
+      result.purchasedBuilds.push(buildId)
+    }
+  }
+
+  return result
 }
 
 export async function isLicenseRequired(
@@ -518,8 +721,8 @@ export async function isLicenseRequired(
   if (CONTRACTS.LICENSE_REGISTRY === "0x0000000000000000000000000000000000000000") {
     return false
   }
-  const contract = new ethers.Contract(CONTRACTS.LICENSE_REGISTRY, LICENSE_REGISTRY_ABI, provider)
-  return await contract.isLicenseRequired(componentTokenId)
+  const ids = await getLicenseIds(provider, [componentTokenId])
+  return ids.length > 0 && ids[0] > 0n
 }
 
 // ========== NEW: License NFT Functions ==========
@@ -588,9 +791,9 @@ export async function getBuildState(
     const contract = new ethers.Contract(CONTRACTS.BUILD_NFT, BUILD_NFT_ABI, provider)
     
     const [kind, geometryHash, lockedBlox] = await Promise.all([
-      contract.kind(tokenId),
-      contract.geometryHash(tokenId),
-      contract.lockedBlox(tokenId),
+      contract.kindOf(tokenId),
+      contract.geometryOf(tokenId),
+      contract.lockedBloxOf(tokenId),
     ])
 
   const state: BuildState = {
@@ -601,7 +804,7 @@ export async function getBuildState(
 
   // If it's a brick (kind=0), fetch brick spec
   if (state.kind === BUILD_KIND.BRICK) {
-    const [width, depth, density] = await contract.brickSpec(tokenId)
+    const [width, depth, density] = await contract.brickSpecOf(tokenId)
     state.brickSpec = {
       width: Number(width),
       depth: Number(depth),

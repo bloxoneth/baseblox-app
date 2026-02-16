@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { redis } from "@/lib/redis"
 import { validateBrickParams, computeSpecKey, VALID_DENSITIES } from "@/lib/brickSpec"
 import { normalizeBrickKey } from "@/data/bricks"
+import { rk } from "@/lib/redis-keys"
 import type { Build } from "@/lib/types"
 
 // POST /api/builds/mint - Save full build data + mint info to Redis
@@ -22,6 +23,10 @@ export async function POST(request: NextRequest) {
     const brickW = body.brickWidth ?? body.baseWidth ?? 1
     const brickD = body.brickDepth ?? body.baseDepth ?? 1
     const density = body.density
+    const area = Number(brickW) * Number(brickD)
+    let canonicalComponentBuildIds = Array.isArray(body.componentBuildIds) ? body.componentBuildIds : []
+    let canonicalComponentCounts = Array.isArray(body.componentCounts) ? body.componentCounts : []
+    let canonicalComposition = body.composition
 
     // ── Kind 0 (Brick) validation ──
     if (kind === 0) {
@@ -41,12 +46,62 @@ export async function POST(request: NextRequest) {
       // Duplicate check: has this spec already been minted?
       const specKey = computeSpecKey(brickW, brickD, density)
       const brickKey = normalizeBrickKey(brickW, brickD, density)
-      const existingTokenId = await redis.get(`brick:spec:${brickKey}`)
+      const existingTokenId = await redis.get(rk(`brick:spec:${brickKey}`))
       if (existingTokenId && String(existingTokenId) !== String(tokenId)) {
         return NextResponse.json(
           { error: `Brick ${brickKey} already minted as token #${existingTokenId}`, specKey },
           { status: 409 },
         )
+      }
+
+      // Component model for kind=0:
+      // - 1x1 is primitive (no components)
+      // - Any larger rectangle must be composed from the matching 1x1 density token.
+      if (area === 1) {
+        canonicalComponentBuildIds = []
+        canonicalComponentCounts = []
+        canonicalComposition = {}
+      } else {
+        const baseBrickKey = normalizeBrickKey(1, 1, density)
+        const baseTokenId = await redis.get<string>(rk(`brick:spec:${baseBrickKey}`))
+        if (!baseTokenId) {
+          return NextResponse.json(
+            { error: `Missing base component ${baseBrickKey}. Mint 1x1 first for this density.` },
+            { status: 409 },
+          )
+        }
+
+        const incomingIds = (Array.isArray(body.componentBuildIds) ? body.componentBuildIds : []).map(String)
+        const incomingCounts = (Array.isArray(body.componentCounts) ? body.componentCounts : []).map((n) => Number(n))
+        const expectedCount = Number(area)
+
+        if (
+          incomingIds.length !== 1 ||
+          incomingCounts.length !== 1 ||
+          String(incomingIds[0]) !== String(baseTokenId) ||
+          incomingCounts[0] !== expectedCount
+        ) {
+          return NextResponse.json(
+            {
+              error: "Invalid brick components for kind=0 rectangle. Expected area x 1x1 of same density.",
+              expected: {
+                componentBuildIds: [String(baseTokenId)],
+                componentCounts: [expectedCount],
+                baseSpec: baseBrickKey,
+              },
+            },
+            { status: 400 },
+          )
+        }
+
+        canonicalComponentBuildIds = [String(baseTokenId)]
+        canonicalComponentCounts = [expectedCount]
+        canonicalComposition = {
+          [String(baseTokenId)]: {
+            count: expectedCount,
+            name: baseBrickKey,
+          },
+        }
       }
     }
 
@@ -108,13 +163,13 @@ export async function POST(request: NextRequest) {
       brickDepth: body.brickDepth,
 
       // Composition (which NFTs are used inside this build)
-      composition: body.composition,
+      composition: canonicalComposition,
 
       // Contract params (useful for verification / IPFS)
       geometryHash: body.geometryHash,
       specKey: body.specKey,
-      componentBuildIds: body.componentBuildIds,
-      componentCounts: body.componentCounts,
+      componentBuildIds: canonicalComponentBuildIds,
+      componentCounts: canonicalComponentCounts,
 
       // Metadata
       metadata: body.metadata,
@@ -125,20 +180,20 @@ export async function POST(request: NextRequest) {
     }
 
     // Save full build data
-    await redis.set(`build:${mintedBuild.id}`, mintedBuild)
+    await redis.set(rk(`build:${mintedBuild.id}`), mintedBuild)
 
     // Reverse lookups
-    await redis.set(`token:${tokenId}`, mintedBuild.id)
-    await redis.set(`hash:${buildHash}`, mintedBuild.id)
+    await redis.set(rk(`token:${tokenId}`), mintedBuild.id)
+    await redis.set(rk(`hash:${buildHash}`), mintedBuild.id)
 
     // Brick spec reverse index (for duplicate detection)
     if (kind === 0) {
       const brickKey = normalizeBrickKey(brickW, brickD, density ?? 1)
-      await redis.set(`brick:spec:${brickKey}`, tokenId)
+      await redis.set(rk(`brick:spec:${brickKey}`), tokenId)
     }
 
     // Add to global minted set
-    await redis.sadd("minted_tokens", tokenId)
+    await redis.sadd(rk("minted_tokens"), tokenId)
 
     return NextResponse.json({ success: true, build: mintedBuild })
   } catch (error) {

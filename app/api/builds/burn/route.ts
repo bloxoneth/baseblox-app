@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { redis } from "@/lib/redis"
+import { rk } from "@/lib/redis-keys"
 
 // POST /api/builds/burn - Remove burned NFT from minted set
 export async function POST(request: NextRequest) {
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest) {
     console.log("[v0] Removing burned token", tokenId, "from minted_tokens set")
 
     // Remove from minted tokens set
-    await redis.srem("minted_tokens", tokenId)
+    await redis.srem(rk("minted_tokens"), tokenId)
 
     console.log("[v0] Successfully removed token", tokenId, "from gallery")
 

@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import type { Brick } from "@/lib/types"
+import { fetchWithDataSource } from "@/lib/data-source"
 
 type MintedBuild = {
   id: string
@@ -26,7 +27,7 @@ type MintedBuild = {
 const loadNFTBuildData = async (tokenId: number): Promise<Brick[] | null> => {
   try {
     console.log("[v0] Loading NFT build data for token:", tokenId)
-    const response = await fetch(`/api/builds/token/${tokenId}`)
+    const response = await fetchWithDataSource(`/api/builds/token/${tokenId}`)
 
     console.log("[v0] Token API response status:", response.status, response.statusText)
 
@@ -139,7 +140,7 @@ export default function V0BlocksV2({
   >([])
   const [isNFTCounterExpanded, setIsNFTCounterExpanded] = useState(false)
   const [brickCounts, setBrickCounts] = useState<Array<{ width: number; depth: number; count: number; minted: boolean }>>([])
-  const [brickSizeOverride, setBrickSizeOverride] = useState<{ width: number; depth: number } | null>(null)
+  const [brickSizeOverride, setBrickSizeOverride] = useState<{ width: number; depth: number; density?: number } | null>(null)
 
   const nftCounts = useMemo(() => {
     const counts = new Map<number, { name: string; tokenId: number; bricksCount: number; count: number }>()
@@ -186,7 +187,7 @@ export default function V0BlocksV2({
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
 
-      const response = await fetch("/api/builds/minted", {
+      const response = await fetchWithDataSource("/api/builds/minted", {
         signal: controller.signal,
       }).finally(() => clearTimeout(timeoutId))
 
@@ -327,14 +328,15 @@ export default function V0BlocksV2({
       const buildKind = nft.kind ?? 0
       const brickW = nft.brickWidth ?? nft.baseWidth
       const brickD = nft.brickDepth ?? nft.baseDepth
+      const brickDensity = nft.density
       
       if (buildKind === 0 && brickW && brickD) {
         setNftGeometry(null)
         setNftInfo(null)
-        setBrickSizeOverride({ width: brickW, depth: brickD })
+        setBrickSizeOverride({ width: brickW, depth: brickD, density: brickDensity })
         toast({
           title: `${nft.name || `Build #${nft.tokenId}`}`,
-          description: `Brick size set to ${brickW}x${brickD}. Click to place!`,
+          description: `Brick set to ${brickW}x${brickD}${brickDensity ? ` D${brickDensity}` : ""}. Click to place!`,
         })
       } else {
         // Multi-brick builds: normalize positions (preserve exact sub-stud offsets)

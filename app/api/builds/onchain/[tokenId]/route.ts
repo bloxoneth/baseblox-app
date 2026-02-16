@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server"
 import { ethers } from "ethers"
+import fs from "node:fs"
+import path from "node:path"
 import {
   CONTRACTS,
   BUILD_NFT_ABI,
   RPC_URL,
+  CHAIN_ID,
   BASE_METADATA_URI,
   BASE_METADATA_CID,
   tokenMetadataGatewayURL,
@@ -44,7 +47,7 @@ export async function GET(
 
   // kind
   try {
-    const k = await contract.kind(id)
+    const k = await contract.kindOf(id)
     onchain.kind = Number(k)
   } catch (e: any) {
     errors.push(`kind: ${e.reason ?? e.message}`)
@@ -52,14 +55,14 @@ export async function GET(
 
   // geometryHash
   try {
-    onchain.geometryHash = await contract.geometryHash(id)
+    onchain.geometryHash = await contract.geometryOf(id)
   } catch (e: any) {
     errors.push(`geometryHash: ${e.reason ?? e.message}`)
   }
 
   // brickSpec (width, depth, density)
   try {
-    const [w, d, dens] = await contract.brickSpec(id)
+    const [w, d, dens] = await contract.brickSpecOf(id)
     onchain.brickSpec = { width: Number(w), depth: Number(d), density: Number(dens) }
   } catch (e: any) {
     errors.push(`brickSpec: ${e.reason ?? e.message}`)
@@ -67,7 +70,7 @@ export async function GET(
 
   // lockedBlox
   try {
-    const blox = await contract.lockedBlox(id)
+    const blox = await contract.lockedBloxOf(id)
     onchain.lockedBlox = blox.toString()
   } catch (e: any) {
     errors.push(`lockedBlox: ${e.reason ?? e.message}`)
@@ -101,6 +104,33 @@ export async function GET(
   }
 
   if (!ipfsMetadata) {
+    // Local fallback for dev/simulation runs.
+    try {
+      const simRunsDir = path.join(process.cwd(), "data", "sim-runs")
+      if (fs.existsSync(simRunsDir)) {
+        const runs = fs.readdirSync(simRunsDir)
+          .map((name) => {
+            const full = path.join(simRunsDir, name)
+            const stat = fs.statSync(full)
+            return { name, full, mtime: stat.mtimeMs, isDir: stat.isDirectory() }
+          })
+          .filter((x) => x.isDir)
+          .sort((a, b) => b.mtime - a.mtime)
+
+        for (const run of runs) {
+          const metaPath = path.join(run.full, "metadata", `${id}.json`)
+          if (!fs.existsSync(metaPath)) continue
+          ipfsMetadata = JSON.parse(fs.readFileSync(metaPath, "utf8"))
+          resolvedURL = `local://data/sim-runs/${run.name}/metadata/${id}.json`
+          break
+        }
+      }
+    } catch {
+      // ignore local fallback failures
+    }
+  }
+
+  if (!ipfsMetadata) {
     errors.push("IPFS metadata: all gateways failed")
   }
 
@@ -109,7 +139,7 @@ export async function GET(
     ipfsMetadata,
     ipfsURL: resolvedURL,
     contract: CONTRACTS.BUILD_NFT,
-    chain: "Base Sepolia (84532)",
+    chain: `${process.env.NEXT_PUBLIC_NETWORK_NAME ?? "Base Sepolia"} (${CHAIN_ID})`,
     baseMetadataURI: BASE_METADATA_URI,
     errors: errors.length > 0 ? errors : undefined,
   })

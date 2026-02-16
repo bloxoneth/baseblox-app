@@ -1,6 +1,7 @@
 "use client"
 
 import { createContext, useContext, useEffect, useState, useRef, type ReactNode } from "react"
+import { ANVIL_LOCAL, BASE_SEPOLIA } from "@/lib/web3/chains"
 
 interface MetaMaskState {
   account: string | null
@@ -141,32 +142,20 @@ export function MetaMaskProvider({ children }: { children: ReactNode }) {
           })
         } else {
           // MetaMask is installed but no accounts authorized
-          // Check localStorage for a previously connected session
+          // Check localStorage for a previously connected session.
+          // Do not call eth_requestAccounts here (no user gesture) because it can
+          // race with a manual connect click and leave MetaMask in a failed/pending state.
           const savedAccount = localStorage.getItem("metamask_account")
           if (savedAccount) {
-            // Silently request accounts to re-authorize
-            return ethereum.request({ method: "eth_requestAccounts" })
-              .then((accts: string[]) => {
-                if (accts.length > 0) {
-                  return ethereum.request({ method: "eth_chainId" }).then((chainId: string) => {
-                    localStorage.setItem("metamask_account", accts[0])
-                    localStorage.setItem("metamask_chainId", chainId)
-                    setState((prev) => ({
-                      ...prev,
-                      account: accts[0],
-                      chainId,
-                      isConnected: true,
-                      isInstalled: true,
-                      isMetaMaskBrowser: true,
-                    }))
-                  })
-                }
-              })
-              .catch(() => {
-                // User rejected re-auth, clear stale session
-                localStorage.removeItem("metamask_account")
-                localStorage.removeItem("metamask_chainId")
-              })
+            // Clear stale session; next explicit connect() will prompt MetaMask.
+            localStorage.removeItem("metamask_account")
+            localStorage.removeItem("metamask_chainId")
+            setState((prev) => ({
+              ...prev,
+              account: null,
+              chainId: null,
+              isConnected: false,
+            }))
           }
         }
       })
@@ -319,17 +308,10 @@ export function MetaMaskProvider({ children }: { children: ReactNode }) {
       throw new Error("MetaMask is not installed")
     }
 
-    // Base Sepolia network config
-    const BASE_SEPOLIA_CONFIG = {
-      chainId: "0x14a34", // 84532
-      chainName: "Base Sepolia",
-      nativeCurrency: {
-        name: "Ethereum",
-        symbol: "ETH",
-        decimals: 18,
-      },
-      rpcUrls: ["https://sepolia.base.org"],
-      blockExplorerUrls: ["https://sepolia.basescan.org"],
+    const chainKey = chainId.toLowerCase()
+    const supportedChainConfigs: Record<string, any> = {
+      [BASE_SEPOLIA.chainId.toLowerCase()]: BASE_SEPOLIA,
+      [ANVIL_LOCAL.chainId.toLowerCase()]: ANVIL_LOCAL,
     }
 
     try {
@@ -340,14 +322,18 @@ export function MetaMaskProvider({ children }: { children: ReactNode }) {
     } catch (error: any) {
       // If chain doesn't exist (4902) or unrecognized (could be other codes), try to add it
       if (error.code === 4902 || error.message?.includes("Unrecognized chain")) {
+        const chainConfig = supportedChainConfigs[chainKey]
+        if (!chainConfig) {
+          throw new Error(`Unsupported chain: ${chainId}`)
+        }
         try {
           await ethereum.request({
             method: "wallet_addEthereumChain",
-            params: [BASE_SEPOLIA_CONFIG],
+            params: [chainConfig],
           })
         } catch (addError: any) {
           console.error("[v0] Error adding chain:", addError)
-          throw new Error("Failed to add Base Sepolia network. Please add it manually.")
+          throw new Error(`Failed to add ${chainConfig.chainName} network. Please add it manually.`)
         }
       } else {
         throw error

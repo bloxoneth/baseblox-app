@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -10,7 +10,6 @@ import { Box, Layers, Weight, Sparkles } from "lucide-react"
 import { ethers } from "ethers"
 import { FEE_PER_MINT } from "@/lib/contracts/ethblox-contracts"
 import { Canvas, useFrame } from "@react-three/fiber"
-import { Environment } from "@react-three/drei"
 import * as THREE from "three"
 
 interface BrickMintModalProps {
@@ -111,7 +110,12 @@ const DENSITY_LABELS: Record<number, string> = {
 
 export function BrickMintModal({ open, onOpenChange, brick, onMintSuccess }: BrickMintModalProps) {
   const router = useRouter()
+  const [isMounted, setIsMounted] = useState(false)
   const [selectedDensity, setSelectedDensity] = useState<number>(brick?.density ?? 1)
+
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   if (!brick) return null
 
@@ -163,14 +167,15 @@ export function BrickMintModal({ open, onOpenChange, brick, onMintSuccess }: Bri
           {/* 3D Glass Brick Preview */}
           <div className="relative rounded-lg border border-[hsl(var(--ethblox-border))] overflow-hidden bg-[hsl(var(--ethblox-bg))]">
             <div className="h-40">
-              <Canvas camera={{ position: [2.5, 2, 2.5], fov: 45 }} gl={{ alpha: true }}>
-                <ambientLight intensity={0.4} />
-                <directionalLight position={[5, 8, 5]} intensity={1.2} />
-                <directionalLight position={[-3, 4, -3]} intensity={0.3} />
-                <pointLight position={[0, 3, 0]} intensity={0.5} color="#88ccff" />
-                <Environment preset="city" />
-                <GlassBrick3D width={brick.width} depth={brick.depth} density={selectedDensity} />
-              </Canvas>
+              {isMounted ? (
+                <Canvas camera={{ position: [2.5, 2, 2.5], fov: 45 }} gl={{ alpha: true }}>
+                  <ambientLight intensity={0.4} />
+                  <directionalLight position={[5, 8, 5]} intensity={1.2} />
+                  <directionalLight position={[-3, 4, -3]} intensity={0.3} />
+                  <pointLight position={[0, 3, 0]} intensity={0.5} color="#88ccff" />
+                  <GlassBrick3D width={brick.width} depth={brick.depth} density={selectedDensity} />
+                </Canvas>
+              ) : null}
             </div>
             <p className="text-center text-lg font-bold text-[hsl(var(--ethblox-text-primary))] pb-3">
               {formatBrickName({ ...brick, density: selectedDensity as BrickNFT["density"] })}

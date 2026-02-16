@@ -13,13 +13,18 @@ import { calculateTotalBlox } from "@/lib/brick-utils"
 import { ethers } from "ethers"
 import {
   CONTRACTS,
+  BUILD_KIND,
   FEE_PER_MINT,
   getBloxBalance,
   getBloxAllowance,
   getMaxMass,
   getNextTokenId,
   approveBlox,
-  mintBuildNFT,
+  mintBuildNFTWithParams,
+  getComponentLicenseStatus,
+  buyMissingLicensesForComponents,
+  isLicenseApproved,
+  approveLicenseNFT,
   isHashMinted,
   addMintedHash,
 } from "@/lib/contracts/ethblox-contracts"
@@ -79,6 +84,7 @@ export function MintBuildModal({
   composition = {},
   metadata,
 }: MintBuildModalProps) {
+  const explorerBase = process.env.NEXT_PUBLIC_BLOCK_EXPLORER_URL ?? "https://sepolia.basescan.org"
   // Calculate base dimensions dynamically from bricks
   const { baseWidth, baseDepth } = calculateBaseDimensions(bricks)
   const [isMinting, setIsMinting] = useState(false)
@@ -87,7 +93,9 @@ export function MintBuildModal({
   const [showJsonData, setShowJsonData] = useState(false)
   const [screenshotDataUrl, setScreenshotDataUrl] = useState<string | null>(null)
   const [buildHash, setBuildHash] = useState<string | null>(null)
-  const [mintStep, setMintStep] = useState<"idle" | "approving" | "minting" | "success" | "error">("idle")
+  const [mintStep, setMintStep] = useState<
+    "idle" | "approving" | "approvingLicenses" | "buyingLicenses" | "minting" | "success" | "error"
+  >("idle")
   const [bloxBalance, setBloxBalance] = useState<bigint | null>(null)
   const [bloxAllowance, setBloxAllowance] = useState<bigint | null>(null)
   const [maxMass, setMaxMass] = useState<bigint | null>(null)
@@ -95,6 +103,8 @@ export function MintBuildModal({
   const [tokenId, setTokenId] = useState<bigint | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [needsApproval, setNeedsApproval] = useState(false)
+  const [autoBuyMissingLicenses, setAutoBuyMissingLicenses] = useState(true)
+  const [missingLicenseCount, setMissingLicenseCount] = useState(0)
 
   const { account, isConnected, switchChain } = useMetaMask()
   const router = useRouter()
@@ -207,6 +217,33 @@ export function MintBuildModal({
     fetchContractData()
   }, [open, isConnected, account, totalBloxMass])
 
+  useEffect(() => {
+    if (!open || !isConnected || !account) {
+      setMissingLicenseCount(0)
+      return
+    }
+    const componentBuildIds = Object.entries(composition)
+      .filter(([id, data]) => Number(id) > 0 && data.count > 0)
+      .map(([id]) => BigInt(id))
+    if (componentBuildIds.length === 0) {
+      setMissingLicenseCount(0)
+      return
+    }
+
+    const fetchMissing = async () => {
+      try {
+        const ethereum = (window as any).ethereum
+        if (!ethereum) return
+        const provider = new ethers.BrowserProvider(ethereum)
+        const status = await getComponentLicenseStatus(provider, account, componentBuildIds)
+        setMissingLicenseCount(status.missingComponentBuildIds.length)
+      } catch {
+        setMissingLicenseCount(0)
+      }
+    }
+    fetchMissing()
+  }, [open, isConnected, account, composition])
+
   const buildJsonData = {
     version: "0.1",
     sceneType: "ethblox-v0",
@@ -294,6 +331,9 @@ export function MintBuildModal({
 
     try {
       const provider = new ethers.BrowserProvider(ethereum)
+      const componentEntries = Object.entries(composition).filter(([id, data]) => Number(id) > 0 && data.count > 0)
+      const componentBuildIds = componentEntries.map(([id]) => BigInt(id))
+      const componentCounts = componentEntries.map(([, data]) => BigInt(data.count))
 
       const currentAllowance = await getBloxAllowance(provider, account, CONTRACTS.BUILD_NFT)
       const needsApprovalNow = currentAllowance < requiredAmount
@@ -313,13 +353,47 @@ export function MintBuildModal({
         setNeedsApproval(false)
       }
 
+      if (componentBuildIds.length > 0) {
+        const status = await getComponentLicenseStatus(provider, account, componentBuildIds)
+        if (status.missingComponentBuildIds.length > 0) {
+          if (!autoBuyMissingLicenses) {
+            throw new Error(
+              `Missing licenses for component builds: ${status.missingComponentBuildIds.map((id) => id.toString()).join(", ")}.`,
+            )
+          }
+          setMintStep("buyingLicenses")
+          const purchaseResult = await buyMissingLicensesForComponents(provider, account, componentBuildIds)
+          if (purchaseResult.txHashes.length > 0 || purchaseResult.registeredBuilds.length > 0) {
+            const refreshed = await getComponentLicenseStatus(provider, account, componentBuildIds)
+            setMissingLicenseCount(refreshed.missingComponentBuildIds.length)
+          }
+        }
+
+        const licenseApproved = await isLicenseApproved(provider, account, CONTRACTS.BUILD_NFT)
+        if (!licenseApproved) {
+          setMintStep("approvingLicenses")
+          const licenseApproveTx = await approveLicenseNFT(provider, CONTRACTS.BUILD_NFT, true)
+          await licenseApproveTx.wait()
+        }
+      }
+
       setMintStep("minting")
       console.log("[v0] Minting NFT with hash:", buildHash, "mass:", totalBloxMass)
 
       const nextId = await getNextTokenId(provider)
       setTokenId(nextId)
 
-      const mintTx = await mintBuildNFT(provider, buildHash, totalBloxMass)
+      const mintTx = await mintBuildNFTWithParams(provider, {
+        geometryHash: buildHash,
+        mass: totalBloxMass,
+        uri: "",
+        componentBuildIds,
+        componentCounts,
+        kind: BUILD_KIND.BUILD,
+        width: baseWidth,
+        depth: baseDepth,
+        density: 1,
+      })
       console.log("[v0] Mint tx sent:", mintTx.hash)
       setTxHash(mintTx.hash)
 
@@ -412,13 +486,19 @@ export function MintBuildModal({
 
   const getButtonText = () => {
     if (mintStep === "approving") return "Approving BLOX..."
+    if (mintStep === "buyingLicenses") return "Buying Missing Licenses..."
+    if (mintStep === "approvingLicenses") return "Approving License NFT..."
     if (mintStep === "minting") return "Minting NFT..."
     if (mintStep === "success") return "Minted!"
     if (needsApproval) return "Approve BLOX"
     return "Confirm Mint"
   }
 
-  const isLoading = mintStep === "approving" || mintStep === "minting"
+  const isLoading =
+    mintStep === "approving" ||
+    mintStep === "buyingLicenses" ||
+    mintStep === "approvingLicenses" ||
+    mintStep === "minting"
   const isSuccess = mintStep === "success"
 
   return (
@@ -456,7 +536,7 @@ export function MintBuildModal({
             <p className="text-sm text-gray-300">{totalBloxMass} BLOX have been locked and are now earning rewards.</p>
             {txHash && (
               <a
-                href={`https://sepolia.basescan.org/tx/${txHash}`}
+                href={`${explorerBase}/tx/${txHash}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 font-medium"
@@ -466,7 +546,7 @@ export function MintBuildModal({
             )}
             {tokenId && (
               <a
-                href={`https://sepolia.basescan.org/nft/${CONTRACTS.BUILD_NFT}/${tokenId.toString()}`}
+                href={`${explorerBase}/nft/${CONTRACTS.BUILD_NFT}/${tokenId.toString()}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 font-medium"
@@ -491,12 +571,18 @@ export function MintBuildModal({
           </div>
         )}
 
-        {(mintStep === "approving" || mintStep === "minting") && (
+        {(mintStep === "approving" ||
+          mintStep === "buyingLicenses" ||
+          mintStep === "approvingLicenses" ||
+          mintStep === "minting") && (
           <div className="bg-blue-900/30 border border-blue-500 rounded-lg p-4 space-y-3">
             <div className="flex items-center gap-2 text-blue-400">
               <Loader2 className="h-5 w-5 animate-spin" />
               <span className="font-semibold">
-                {mintStep === "approving" ? "Step 1: Approving BLOX..." : "Step 2: Minting NFT..."}
+                {mintStep === "approving" && "Step 1: Approving BLOX..."}
+                {mintStep === "buyingLicenses" && "Step 2: Buying Missing Licenses..."}
+                {mintStep === "approvingLicenses" && "Step 3: Approving License NFT..."}
+                {mintStep === "minting" && "Step 4: Minting NFT..."}
               </span>
             </div>
             <p className="text-sm text-gray-300">Please confirm the transaction in your wallet</p>
@@ -554,6 +640,23 @@ export function MintBuildModal({
                         <span className="text-white font-medium">x {data.count}</span>
                       </div>
                     ))}
+                  </div>
+                  <div className="mt-3 flex items-center justify-between rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2">
+                    <span className="text-sm text-blue-200">Missing Component Licenses:</span>
+                    <span className="font-medium text-blue-100">{missingLicenseCount}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="text-sm text-gray-300">Auto-buy missing licenses:</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={autoBuyMissingLicenses ? "default" : "outline"}
+                      disabled={isLoading || isSuccess}
+                      onClick={() => setAutoBuyMissingLicenses((v) => !v)}
+                      className={autoBuyMissingLicenses ? "bg-blue-600 hover:bg-blue-700 text-white" : ""}
+                    >
+                      {autoBuyMissingLicenses ? "ON" : "OFF"}
+                    </Button>
                   </div>
                 </div>
               )}

@@ -5,6 +5,7 @@ import React from "react"
 import { useState, useEffect, useRef, useCallback } from "react"
 import { Canvas, useThree, useFrame } from "@react-three/fiber"
 import { OrbitControls } from "@react-three/drei"
+import { useRouter } from "next/navigation"
 import * as THREE from "three"
 import {
   Hammer,
@@ -42,7 +43,6 @@ import {
 import { Input } from "@/components/ui/input"
 import { useMetaMask } from "@/contexts/metamask-context"
 import { useBloxBalance } from "@/lib/web3/hooks/useBloxBalance"
-import { MintBuildModal } from "./MintBuildModal"
 import { BrickMintModal } from "./BrickMintModal"
 import { calculateTotalBlox } from "@/lib/brick-utils"
 import { getBrickByDimensions, type BrickNFT, BRICK_DENSITIES, normalizeBrickKey } from "@/data/bricks"
@@ -726,7 +726,7 @@ export default function V0Blocks({
   initialBricks?: Brick[]
   onAutoSave?: (bricks: Brick[]) => void
   onClearNFTMode?: () => void
-  onSetBrickSize?: { width: number; depth: number } | null
+  onSetBrickSize?: { width: number; depth: number; density?: number } | null
   onOpenNFTDrawer?: () => void
   onRotateNFT?: () => void
   onBrickCountsChange?: (counts: Array<{ width: number; depth: number; count: number; minted: boolean }>) => void
@@ -743,19 +743,26 @@ export default function V0Blocks({
   
   // Set of minted brick keys loaded from Redis: e.g. "1x1-D1", "2x2-D27"
   const [mintedBrickKeys, setMintedBrickKeys] = useState<Set<string>>(new Set())
-  
+
+  const refreshMintedBrickKeys = useCallback(async (): Promise<Set<string>> => {
+    try {
+      const r = await fetch("/api/builds/check-minted")
+      const data = await r.json()
+      const next = new Set<string>(Array.isArray(data.mintedBricks) ? data.mintedBricks : [])
+      setMintedBrickKeys(next)
+      if (next.size > 0) {
+        console.log("[v0] Loaded minted bricks:", next.size)
+      }
+      return next
+    } catch {
+      return new Set<string>()
+    }
+  }, [])
+
   // Load minted brick keys from Redis on mount
   useEffect(() => {
-    fetch("/api/builds/check-minted")
-      .then(r => r.json())
-      .then(data => {
-        if (data.mintedBricks?.length > 0) {
-          setMintedBrickKeys(new Set(data.mintedBricks))
-          console.log("[v0] Loaded minted bricks from Redis:", data.mintedBricks)
-        }
-      })
-      .catch(() => {})
-  }, [])
+    void refreshMintedBrickKeys()
+  }, [refreshMintedBrickKeys])
   const [ghostBrick, setGhostBrick] = useState<Brick | null>(null)
   const [groundHighlight, setGroundHighlight] = useState<any>(null)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -769,7 +776,6 @@ export default function V0Blocks({
   const { account, isConnected, connect } = useMetaMask()
   const { isCorrectChain, switchToBaseSepolia } = useBloxBalance()
   const [buildId] = useState<string>(() => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`)
-  const [mintDialogOpen, setMintDialogOpen] = useState(false)
   const snapGridEnabled = true
   const [nftGhostBricks, setNftGhostBricks] = useState<Brick[]>([])
   const [isDragging, setIsDragging] = useState(false)
@@ -799,6 +805,7 @@ export default function V0Blocks({
   const [brickMintModalOpen, setBrickMintModalOpen] = useState(false)
   const [pendingBrickNFT, setPendingBrickNFT] = useState<BrickNFT | null>(null)
   const [pendingBrickPlacement, setPendingBrickPlacement] = useState<Brick | null>(null)
+  const router = useRouter()
 
   const colors = COLOR_THEMES[theme]
   const selectedColor = colors[colorIndex]
@@ -824,6 +831,12 @@ export default function V0Blocks({
     if (onSetBrickSize) {
       setWidth(onSetBrickSize.width)
       setDepth(onSetBrickSize.depth)
+      if (
+        typeof onSetBrickSize.density === "number" &&
+        BRICK_DENSITIES.includes(onSetBrickSize.density as (typeof BRICK_DENSITIES)[number])
+      ) {
+        setDensity(onSetBrickSize.density)
+      }
     }
   }, [onSetBrickSize])
 
@@ -1194,6 +1207,11 @@ export default function V0Blocks({
           // Minted - allow placement
           addToHistory([...bricks, newBrick])
         } else {
+          const latestMinted = await refreshMintedBrickKeys()
+          if (latestMinted.has(brickKey)) {
+            addToHistory([...bricks, newBrick])
+            return
+          }
           // Not minted - show mint modal
           const brickNFT = getBrickByDimensions(ghostBrick.width, ghostBrick.depth, density)
           if (brickNFT) {
@@ -1227,6 +1245,7 @@ export default function V0Blocks({
       positionNFTBricks,
       onNFTPlaced,
       toast,
+      refreshMintedBrickKeys,
     ],
   )
 
@@ -1499,7 +1518,43 @@ ghostPositionRef.current = { x: snappedX, z: snappedZ }
       return
     }
 
-    setMintDialogOpen(true)
+    let minX = Number.POSITIVE_INFINITY
+    let maxX = Number.NEGATIVE_INFINITY
+    let minZ = Number.POSITIVE_INFINITY
+    let maxZ = Number.NEGATIVE_INFINITY
+    for (const b of bricks) {
+      const halfW = b.width / 2
+      const halfD = b.depth / 2
+      minX = Math.min(minX, b.position[0] - halfW)
+      maxX = Math.max(maxX, b.position[0] + halfW)
+      minZ = Math.min(minZ, b.position[2] - halfD)
+      maxZ = Math.max(maxZ, b.position[2] + halfD)
+    }
+    const baseWidth = Math.max(1, Math.round(maxX - minX))
+    const baseDepth = Math.max(1, Math.round(maxZ - minZ))
+
+    const mintDebugData = {
+      buildId,
+      buildName,
+      buildHash: null as string | null,
+      bricks,
+      baseWidth,
+      baseDepth,
+      totalBloxMass: calculateTotalBlox(bricks),
+      uniqueColors: new Set(bricks.map((b) => b.color)).size,
+      composition: nftComposition,
+      metadata: {
+        buildWidth: baseWidth,
+        buildDepth: baseDepth,
+        totalBricks: bricks.length,
+        totalInstances: bricks.length,
+        nftsUsed: Object.keys(nftComposition).length,
+      },
+      account,
+      timestamp: Date.now(),
+    }
+    sessionStorage.setItem("ethblox_mint_debug", JSON.stringify(mintDebugData))
+    router.push(`/mint-debug?density=${density}`)
   }
 
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768
@@ -1767,6 +1822,22 @@ ghostPositionRef.current = { x: snappedX, z: snappedZ }
               >
                 <FolderOpen className="h-4 w-4" />
               </Button>
+              <div className="w-px h-5 bg-zinc-600" />
+              <span className="text-[10px] text-zinc-500 uppercase tracking-wider">D</span>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="ghost" className="text-white font-mono text-xs h-8 px-2">
+                    {density} <ChevronDown className="h-2.5 w-2.5 ml-0.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  {BRICK_DENSITIES.map((d) => (
+                    <DropdownMenuItem key={d} onClick={() => { onClearNFTMode?.(); setDensity(d) }}>
+                      {d} <span className="ml-2 text-xs text-muted-foreground">{d === 1 ? "Hollow" : d === 8 ? "Light" : d === 27 ? "Standard" : d === 64 ? "Dense" : "Ultra"}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
               {/* Parts counter rendered by V0BlocksV2 */}
             </>
           ) : (
@@ -1966,26 +2037,7 @@ ghostPositionRef.current = { x: snappedX, z: snappedZ }
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
-              
-              <div className="w-px h-5 bg-zinc-700 mx-1" />
-              
-              {/* Density selector */}
-              <span className="text-[10px] text-zinc-500 uppercase tracking-wider">D</span>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="ghost" className="text-white font-mono text-xs h-7 px-1.5">
-                    {density} <ChevronDown className="h-2.5 w-2.5 ml-0.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent>
-                  {BRICK_DENSITIES.map((d) => (
-                    <DropdownMenuItem key={d} onClick={() => { onClearNFTMode?.(); setDensity(d) }}>
-                      {d} <span className="ml-2 text-xs text-muted-foreground">{d === 1 ? "Hollow" : d === 8 ? "Light" : d === 27 ? "Standard" : d === 64 ? "Dense" : "Ultra"}</span>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              
+
               <div className="w-px h-5 bg-zinc-700 mx-1" />
               <Button
                 size="icon"
@@ -2088,35 +2140,6 @@ ghostPositionRef.current = { x: snappedX, z: snappedZ }
                     size="sm"
                     variant="ghost"
                     onClick={() => handleDepthChange((d) => Math.min(FLOOR_SIZE, d + 1))}
-                    className="h-7 w-7 text-zinc-400 p-0 text-sm"
-                  >
-                    +
-                  </Button>
-                </div>
-                <div className="w-px h-5 bg-zinc-700" />
-                {/* Mobile density selector */}
-                <div className="flex items-center bg-black/30 rounded-lg">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      onClearNFTMode?.()
-                      const idx = BRICK_DENSITIES.indexOf(density)
-                      if (idx > 0) setDensity(BRICK_DENSITIES[idx - 1])
-                    }}
-                    className="h-7 w-7 text-zinc-400 p-0 text-sm"
-                  >
-                    -
-                  </Button>
-                  <span className="text-white font-mono w-6 text-center text-[10px]">D{density}</span>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      onClearNFTMode?.()
-                      const idx = BRICK_DENSITIES.indexOf(density)
-                      if (idx < BRICK_DENSITIES.length - 1) setDensity(BRICK_DENSITIES[idx + 1])
-                    }}
                     className="h-7 w-7 text-zinc-400 p-0 text-sm"
                   >
                     +
@@ -2251,15 +2274,6 @@ ghostPositionRef.current = { x: snappedX, z: snappedZ }
         </DialogContent>
       </Dialog>
 
-<MintBuildModal
-  open={mintDialogOpen}
-  onOpenChange={setMintDialogOpen}
-  buildId={buildId}
-  buildName={buildName}
-  bricks={bricks}
-  composition={nftComposition}
-  />
-  
   <BrickMintModal
     open={brickMintModalOpen}
     onOpenChange={(open) => {
