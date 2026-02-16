@@ -653,7 +653,7 @@ export function MintDebugClient() {
         return
       }
 
-      if (params.componentBuildIds.length > 0) {
+      if (params.kind !== BUILD_KIND.BRICK && params.componentBuildIds.length > 0) {
         const status = await getComponentLicenseStatus(provider, account, params.componentBuildIds)
         if (status.missingComponentBuildIds.length > 0) {
           if (!autoBuyMissingLicenses) {
