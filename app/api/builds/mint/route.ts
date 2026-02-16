@@ -1,9 +1,18 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { ethers } from "ethers"
 import { redis } from "@/lib/redis"
 import { validateBrickParams, computeSpecKey, VALID_DENSITIES } from "@/lib/brickSpec"
 import { normalizeBrickKey } from "@/data/bricks"
 import { rk } from "@/lib/redis-keys"
 import type { Build } from "@/lib/types"
+import { tokenImageURI } from "@/lib/contracts/ethblox-contracts"
+import { CONTRACTS, RPC_URL } from "@/lib/contracts/ethblox-contracts"
+
+const LIGHTHOUSE_API_KEY = process.env.LIGHTHOUSE_API_KEY
+const AUTO_IPFS_PUSH_ON_MINT = process.env.AUTO_IPFS_PUSH_ON_MINT === "1"
+const AUTO_SET_BASE_TOKEN_URI_ON_MINT = process.env.AUTO_SET_BASE_TOKEN_URI_ON_MINT === "1"
+const BASE_TOKEN_URI_TARGET = process.env.BASE_TOKEN_URI_TARGET || process.env.NEXT_PUBLIC_BASE_METADATA_URI || ""
+const BASE_TOKEN_URI_OWNER_KEY = process.env.BASE_TOKEN_URI_OWNER_KEY || process.env.PRIVATE_KEY || ""
 
 // POST /api/builds/mint - Save full build data + mint info to Redis
 export async function POST(request: NextRequest) {
@@ -195,9 +204,175 @@ export async function POST(request: NextRequest) {
     // Add to global minted set
     await redis.sadd(rk("minted_tokens"), tokenId)
 
-    return NextResponse.json({ success: true, build: mintedBuild })
+    let ipfs: { cid: string; gatewayUrl: string } | null = null
+    if (AUTO_IPFS_PUSH_ON_MINT && LIGHTHOUSE_API_KEY) {
+      try {
+        const metadata = buildMetadataFromBuild(mintedBuild)
+        const metadataJson = JSON.stringify(metadata)
+        const fileName = `${tokenId}.json`
+
+        const formData = new FormData()
+        const blob = new Blob([metadataJson], { type: "application/json" })
+        formData.append("file", blob, fileName)
+
+        const uploadRes = await fetch("https://node.lighthouse.storage/api/v0/add", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${LIGHTHOUSE_API_KEY}`,
+          },
+          body: formData,
+        })
+
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json()
+          const cid = uploadData.Hash
+          if (cid) {
+            ipfs = {
+              cid,
+              gatewayUrl: `https://gateway.lighthouse.storage/ipfs/${cid}`,
+            }
+          }
+        } else {
+          const errText = await uploadRes.text()
+          console.warn(`AUTO_IPFS_PUSH_ON_MINT failed for token ${tokenId}: ${uploadRes.status} ${errText}`)
+        }
+      } catch (ipfsErr) {
+        console.warn(`AUTO_IPFS_PUSH_ON_MINT exception for token ${tokenId}:`, ipfsErr)
+      }
+    }
+
+    const uriCheck = await verifyAndOptionallyAlignTokenURI(String(tokenId))
+
+    return NextResponse.json({ success: true, build: mintedBuild, ipfs, uriCheck })
   } catch (error) {
     console.error("Error saving mint data:", error)
     return NextResponse.json({ error: "Failed to save mint data" }, { status: 500 })
+  }
+}
+
+function normalizeBaseUri(base: string) {
+  const trimmed = String(base || "").trim()
+  return trimmed.endsWith("/") ? trimmed.slice(0, -1) : trimmed
+}
+
+async function verifyAndOptionallyAlignTokenURI(tokenId: string) {
+  const targetBase = normalizeBaseUri(BASE_TOKEN_URI_TARGET)
+  if (!targetBase) {
+    return {
+      ok: false,
+      reason: "BASE_TOKEN_URI_TARGET not configured",
+    }
+  }
+
+  const provider = new ethers.JsonRpcProvider(RPC_URL)
+  const readAbi = [
+    "function tokenURI(uint256 tokenId) view returns (string)",
+    "function owner() view returns (address)",
+  ]
+  const writeAbi = ["function setBaseTokenURI(string calldata newBase)"]
+
+  try {
+    const readContract = new ethers.Contract(CONTRACTS.BUILD_NFT, readAbi, provider)
+    const expectedTokenURI = `${targetBase}/${tokenId}.json`
+    const currentTokenURI = await readContract.tokenURI(BigInt(tokenId))
+    const isAligned = String(currentTokenURI) === expectedTokenURI
+
+    let ownerAddress = ""
+    try {
+      ownerAddress = String(await readContract.owner())
+    } catch {
+      // ignore owner check failures in diagnostics
+    }
+
+    const out: Record<string, unknown> = {
+      ok: true,
+      tokenId,
+      expectedTokenURI,
+      currentTokenURI,
+      aligned: isAligned,
+      buildNFT: CONTRACTS.BUILD_NFT,
+      rpc: RPC_URL,
+      autoSetEnabled: AUTO_SET_BASE_TOKEN_URI_ON_MINT,
+    }
+
+    if (!isAligned && AUTO_SET_BASE_TOKEN_URI_ON_MINT && BASE_TOKEN_URI_OWNER_KEY) {
+      try {
+        const signer = new ethers.Wallet(BASE_TOKEN_URI_OWNER_KEY, provider)
+        if (!ownerAddress || signer.address.toLowerCase() !== ownerAddress.toLowerCase()) {
+          out["autoSetAttempted"] = false
+          out["autoSetReason"] = "owner key is not contract owner"
+          out["contractOwner"] = ownerAddress || null
+          out["ownerKeyAddress"] = signer.address
+          return out
+        }
+
+        const writeContract = new ethers.Contract(CONTRACTS.BUILD_NFT, writeAbi, signer)
+        const tx = await writeContract.setBaseTokenURI(targetBase)
+        const rc = await tx.wait()
+        const updatedTokenURI = await readContract.tokenURI(BigInt(tokenId))
+        out["autoSetAttempted"] = true
+        out["autoSetTxHash"] = tx.hash
+        out["autoSetBlock"] = rc?.blockNumber ?? null
+        out["updatedTokenURI"] = updatedTokenURI
+        out["alignedAfterAutoSet"] = String(updatedTokenURI) === expectedTokenURI
+      } catch (setErr: any) {
+        out["autoSetAttempted"] = true
+        out["autoSetError"] = setErr?.shortMessage || setErr?.message || "setBaseTokenURI failed"
+      }
+    }
+
+    return out
+  } catch (err: any) {
+    return {
+      ok: false,
+      reason: err?.shortMessage || err?.message || "tokenURI check failed",
+      buildNFT: CONTRACTS.BUILD_NFT,
+      rpc: RPC_URL,
+    }
+  }
+}
+
+function buildMetadataFromBuild(build: Build) {
+  const tokenId = String(build.tokenId)
+  const kind = build.kind ?? 0
+  const kindLabel = kind === 0 ? "Brick" : "Build"
+  const w = build.brickWidth ?? build.baseWidth ?? 1
+  const d = build.brickDepth ?? build.baseDepth ?? 1
+  const density = build.density ?? 1
+  const mass = build.mass ?? (w * d * density)
+
+  const attributes: { trait_type: string; value: string | number }[] = [
+    { trait_type: "kind", value: kind },
+    { trait_type: "mass", value: mass },
+    { trait_type: "density", value: density },
+  ]
+
+  if (build.geometryHash) attributes.push({ trait_type: "geometryHash", value: build.geometryHash })
+  if (build.specKey) attributes.push({ trait_type: "specKey", value: build.specKey })
+  if (build.bw_score) attributes.push({ trait_type: "bw_score", value: build.bw_score })
+  if (w && d) {
+    attributes.push({ trait_type: "width", value: w })
+    attributes.push({ trait_type: "depth", value: d })
+  }
+
+  const componentIds: number[] = []
+  const componentCounts: number[] = []
+  if (build.composition && typeof build.composition === "object") {
+    for (const [tid, info] of Object.entries(build.composition)) {
+      componentIds.push(Number(tid))
+      componentCounts.push((info as any).count ?? 1)
+    }
+  }
+  if (componentIds.length > 0) {
+    attributes.push({ trait_type: "componentBuildIds", value: componentIds.join(",") })
+    attributes.push({ trait_type: "componentCounts", value: componentCounts.join(",") })
+  }
+
+  return {
+    name: build.name || `ETHBLOX #${tokenId}`,
+    description: `ETHBLOX ${kindLabel} - ${w}x${d} density ${density}`,
+    image: tokenImageURI(tokenId),
+    external_url: `https://ethblox.art/explore/${tokenId}`,
+    attributes,
   }
 }

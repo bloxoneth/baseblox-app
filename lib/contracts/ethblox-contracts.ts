@@ -1,7 +1,7 @@
 import { ethers } from "ethers"
 
 // Constants
-export const FEE_PER_MINT = ethers.parseEther("0.01") // 0.01 ETH mint fee
+export const FEE_PER_MINT = ethers.parseEther("0.0001") // 0.0001 ETH mint fee
 export const BLOX_DECIMALS = 18n
 export const MINT_GAS_LIMIT = 700_000n // 600-800k recommended for BuildNFT.mint
 export const MINT_GAS_LIMIT_FORCE = 800_000n // upper bound when force-sending
@@ -341,7 +341,8 @@ export async function runMintDiagnostics(
     results["--- ETH ---"] = ""
     const ethBalance = await provider.getBalance(sender)
     results["ETH Balance"] = `${ethers.formatEther(ethBalance)} ETH`
-    results["ETH Sufficient"] = ethBalance >= FEE_PER_MINT ? "YES" : "NO (need 0.01 ETH)"
+    results["ETH Sufficient"] =
+      ethBalance >= FEE_PER_MINT ? "YES" : `NO (need ${ethers.formatEther(FEE_PER_MINT)} ETH)`
     
     // Mint params summary
     results["--- MINT PARAMS ---"] = ""
@@ -491,7 +492,7 @@ export async function simulateMint(
       // No revert data - try to extract from error message
       const msg = err.message || ""
       if (msg.includes("insufficient funds")) {
-        decodedError = "Insufficient ETH (need 0.01 ETH for mint fee + gas)"
+        decodedError = `Insufficient ETH (need ${ethers.formatEther(FEE_PER_MINT)} ETH for mint fee + gas)`
       } else if (msg.includes("require(false)")) {
         decodedError = "Bare require(false) - contract rejected call. Check BLOX approval, balance, and fee."
       } else {
