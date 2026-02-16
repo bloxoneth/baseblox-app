@@ -135,7 +135,7 @@ export function MintBuildModal({
   const uniqueColors = new Set(bricks.map((b) => b.color)).size
   const bw = calculateBW(totalBloxMass, uniqueColors)
   const estimatedBloxCost = totalBloxMass // 1:1 ratio
-  const estimatedLicenseFeeEth = Number(ethers.formatEther(FEE_PER_MINT)) // 0.01 ETH mint fee
+  const estimatedLicenseFeeEth = Number(ethers.formatEther(FEE_PER_MINT)) // mint fee
   const estimatedApy = (totalBloxMass * 0.05).toFixed(2)
 
   useEffect(() => {

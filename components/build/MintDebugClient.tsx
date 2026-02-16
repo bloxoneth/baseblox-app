@@ -591,7 +591,7 @@ export function MintDebugClient() {
       results["ref[6] width"] = "1"
       results["ref[7] depth"] = "1"
       results["ref[8] density"] = "1"
-      results["ref msg.value"] = "10000000000000000 (0.01 ETH)"
+      results["ref msg.value"] = `${FEE_PER_MINT.toString()} (${ethers.formatEther(FEE_PER_MINT)} ETH)`
       
       // Add raw calldata
       try {
@@ -764,7 +764,7 @@ export function MintDebugClient() {
         if (err.message.includes("user rejected") || err.message.includes("ACTION_REJECTED")) {
           errorMessage = "Transaction rejected by user"
         } else if (err.message.includes("insufficient funds")) {
-          errorMessage = "Insufficient ETH for gas + mint fee (0.01 ETH)"
+          errorMessage = `Insufficient ETH for gas + mint fee (${ethers.formatEther(FEE_PER_MINT)} ETH)`
         } else {
           errorMessage = err.message
         }

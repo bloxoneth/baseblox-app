@@ -72,6 +72,7 @@ npm run env:sepolia
 
 - Set `NEXT_PUBLIC_ENABLE_NETWORK_SWITCHER=false` to hide header chain toggle.
 - Remove or hide any debug-only UI routes (`/mint-debug`, admin reset tools).
+- Confirm app mint fee UI/diagnostics matches final on-chain `BuildNFT.FEE_PER_MINT` (remove temporary test fee assumptions).
 - Confirm `NEXT_PUBLIC_*_ADDRESS` values point to audited production contracts only.
 - Set `NEXT_PUBLIC_NETWORK_NAME` and explorer URL to production network values.
 - Verify `REDIS_KEY_PREFIX` is production-scoped and isolated from staging/local data.
