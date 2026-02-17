@@ -9,15 +9,14 @@ import { Input } from "@/components/ui/input"
 import Link from "next/link"
 import type { Build } from "@/lib/types"
 import { BuildVoxelPreview } from "@/components/preview/BuildVoxelPreview"
-import { fetchWithDataSource, useDataSourceMode } from "@/lib/data-source"
+ 
 
-const fetcher = (url: string) => fetchWithDataSource(url).then(r => r.json())
+const fetcher = (url: string) => fetch(url).then(r => r.json())
 
 export function ExploreClient() {
   const networkName = process.env.NEXT_PUBLIC_NETWORK_NAME ?? "Base Sepolia"
-  const sourceMode = useDataSourceMode()
   const { data, isLoading } = useSWR<{ builds: Build[]; source?: string; missing?: string[] }>(
-    `/api/builds/minted?source=${sourceMode}`,
+    "/api/builds/minted",
     fetcher,
     {
     revalidateOnFocus: false,
@@ -81,12 +80,6 @@ export function ExploreClient() {
           ))}
         </div>
       </div>
-
-      {sourceMode === "truth" && (data?.missing?.length ?? 0) > 0 && (
-        <div className="mb-4 rounded border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-200">
-          Truth mode missing: {data?.missing?.join(", ")}
-        </div>
-      )}
 
       {/* Loading */}
       {isLoading && (

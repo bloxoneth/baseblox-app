@@ -23,7 +23,6 @@ import { Copy, Check, Edit3, ExternalLink, Download, User, Star, Layers } from "
 import { CONTRACTS, tokenImageGatewayURL } from "@/lib/contracts/ethblox-contracts"
 import { calculateTotalBlox } from "@/lib/brick-utils"
 import type { Brick } from "@/lib/types"
-import { fetchWithDataSource, useDataSourceMode } from "@/lib/data-source"
 import { BuildVoxelPreview } from "@/components/preview/BuildVoxelPreview"
 
 interface ProfileData {
@@ -61,7 +60,6 @@ interface ProfileClientProps {
 export default function ProfileClient({ address }: ProfileClientProps) {
   const { account, isConnected } = useMetaMask()
   const { balance: profileChainBalance, isCorrectChain } = useBloxBalance(address)
-  const sourceMode = useDataSourceMode()
   const { toast } = useToast()
 
   const [profile, setProfile] = useState<ProfileData | null>(null)
@@ -94,7 +92,7 @@ export default function ProfileClient({ address }: ProfileClientProps) {
     fetchProfile()
     fetchBuilds()
     // fetchProfileBalance() // Comment out the original fetchProfileBalance function call
-  }, [address, sourceMode])
+  }, [address])
 
   useEffect(() => {
     setPfpImageFailed(false)
@@ -156,7 +154,7 @@ export default function ProfileClient({ address }: ProfileClientProps) {
   const fetchBuilds = async () => {
     setBuildsLoading(true)
     try {
-      const response = await fetchWithDataSource("/api/builds/minted")
+      const response = await fetch("/api/builds/minted")
       if (response.ok) {
         const data = await response.json()
         
@@ -169,7 +167,7 @@ export default function ProfileClient({ address }: ProfileClientProps) {
         const buildsWithBricks = await Promise.all(
           userBuilds.map(async (build: MintedBuild) => {
             try {
-              const buildResponse = await fetchWithDataSource(`/api/builds/token/${build.tokenId}`)
+              const buildResponse = await fetch(`/api/builds/token/${build.tokenId}`)
               if (buildResponse.ok) {
                 const fullBuildData = await buildResponse.json()
                 return { 
@@ -253,7 +251,7 @@ export default function ProfileClient({ address }: ProfileClientProps) {
 
   const handleLoadBuild = async (tokenId: string) => {
     try {
-      const response = await fetchWithDataSource(`/api/builds/token/${tokenId}`)
+      const response = await fetch(`/api/builds/token/${tokenId}`)
       if (response.ok) {
         const buildData = await response.json()
         if (typeof window !== "undefined") {
