@@ -18,8 +18,6 @@ import {
   AlertCircle,
   Database,
   Globe,
-  Server,
-  Link as LinkIcon,
   Upload,
   Loader2,
   Layers,
@@ -29,7 +27,6 @@ import { useMetaMask } from "@/contexts/metamask-context"
 import { registerBuildLicenseIfOwner, mintLicenseForBuild } from "@/lib/contracts/ethblox-contracts"
 import { BuildVoxelPreview } from "@/components/preview/BuildVoxelPreview"
 
-type DataMode = "onchain" | "app"
 type ComponentRow = { id: string; count: number; name?: string }
 
 const fetcher = async (url: string) => {
@@ -174,14 +171,12 @@ function CollapsibleSection({
 /* ────────── Main component ────────── */
 
 export function TokenDetailClient({ tokenId }: { tokenId: string }) {
-  const [mode, setMode] = useState<DataMode>("onchain")
   const [licenseActionLoading, setLicenseActionLoading] = useState<"register" | "buy" | null>(null)
   const [licenseActionError, setLicenseActionError] = useState<string | null>(null)
   const explorerBase = process.env.NEXT_PUBLIC_BLOCK_EXPLORER_URL ?? "https://sepolia.basescan.org"
   const networkName = process.env.NEXT_PUBLIC_NETWORK_NAME ?? "Base Sepolia"
   const { account, isConnected, connect, switchChain } = useMetaMask()
 
-  // Always fetch both so switching is instant
   const { data: onchainData, isLoading: onchainLoading } = useSWR(
     `/api/builds/onchain/${tokenId}`,
     fetcher,
@@ -203,11 +198,10 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
     { revalidateOnFocus: false }
   )
 
-  const isLoading = mode === "onchain" ? onchainLoading : appLoading
+  const isLoading = onchainLoading
   const basescanURL = `${explorerBase}/token/${CONTRACTS.BUILD_NFT}?a=${tokenId}`
   const previewBricks = appData?.bricks && appData.bricks.length > 0 ? appData.bricks : undefined
-  const previewHash =
-    (mode === "onchain" ? onchainData?.onchain?.geometryHash : appData?.geometryHash || appData?.buildHash) ?? ""
+  const previewHash = onchainData?.onchain?.geometryHash ?? ""
 
   if (isLoading) {
     return (
@@ -226,7 +220,6 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
     )
   }
 
-  // Derive display data from whichever mode is active
   const onchain = onchainData?.onchain
   const ipfsMetadata = onchainData?.ipfsMetadata
   const ipfsURL = onchainData?.ipfsURL
@@ -276,18 +269,12 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
     return !["kind", "density", "mass", "geometry hash", "geometryhash", "width", "depth"].includes(k)
   })
 
-  const name =
-    mode === "onchain"
-      ? ipfsMetadata?.name || onchain?.name || `Build #${tokenId}`
-      : appData?.name || `Build #${tokenId}`
-  const description =
-    mode === "onchain"
-      ? ipfsMetadata?.description || null
-      : null
-  const kindRaw = mode === "onchain" ? onchain?.kind : appData?.kind
+  const name = ipfsMetadata?.name || onchain?.name || `Build #${tokenId}`
+  const description = ipfsMetadata?.description || null
+  const kindRaw = onchain?.kind
   const kindLabel = kindRaw === 0 ? "Brick" : kindRaw > 0 ? "Build" : "--"
   const tokenExistsOnchain = onchain?.exists !== false
-  const tokenMissing = mode === "onchain" ? !tokenExistsOnchain : !appData
+  const tokenMissing = !tokenExistsOnchain
 
   const handleRegisterLicense = async () => {
     try {
@@ -342,7 +329,7 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
               <div>
                 <h1 className="text-lg font-semibold text-[hsl(var(--ethblox-text-primary))]">Token #{tokenId} is missing</h1>
                 <p className="text-sm text-[hsl(var(--ethblox-text-secondary))] mt-1">
-                  This token ID does not exist in the selected source ({mode === "onchain" ? "chain" : "app data"}).
+                  This token ID does not exist on chain.
                 </p>
               </div>
             </div>
@@ -354,7 +341,7 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
 
   return (
     <div className="container mx-auto px-6 max-w-[1200px]">
-      {/* Back + toggle row */}
+      {/* Back row */}
       <div className="flex items-center justify-between mb-6">
         <Link href="/explore">
           <Button variant="ghost" className="text-[hsl(var(--ethblox-text-secondary))] bg-transparent hover:text-[hsl(var(--ethblox-text-primary))]">
@@ -362,34 +349,6 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
             Back
           </Button>
         </Link>
-
-        {/* Data source toggle */}
-        <div className="flex items-center rounded-lg border border-[hsl(var(--ethblox-border))] bg-[hsl(var(--ethblox-surface))] p-0.5">
-          <button
-            type="button"
-            onClick={() => setMode("onchain")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-              mode === "onchain"
-                ? "bg-[hsl(var(--ethblox-green))] text-black"
-                : "text-[hsl(var(--ethblox-text-secondary))] hover:text-[hsl(var(--ethblox-text-primary))]"
-            }`}
-          >
-            <LinkIcon className="h-3.5 w-3.5" />
-            On-chain
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("app")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-              mode === "app"
-                ? "bg-[hsl(var(--ethblox-green))] text-black"
-                : "text-[hsl(var(--ethblox-text-secondary))] hover:text-[hsl(var(--ethblox-text-primary))]"
-            }`}
-          >
-            <Server className="h-3.5 w-3.5" />
-            App Data
-          </button>
-        </div>
       </div>
 
       {/* Two-column layout */}
@@ -440,14 +399,14 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
               {name}
             </h1>
             <p className="text-xs text-[hsl(var(--ethblox-text-tertiary))] mt-1 font-mono">
-              {mode === "onchain" ? "Data from chain + IPFS" : "Data from app (Redis)"}
+              Data from chain + IPFS
             </p>
           </div>
 
           {/* Owner */}
           <div className="flex items-center gap-2 text-sm">
             <span className="text-[hsl(var(--ethblox-text-tertiary))]">Owned by</span>
-            {mode === "onchain" && onchain?.owner ? (
+            {onchain?.owner ? (
               <Link
                 href={`${explorerBase}/address/${onchain.owner}`}
                 target="_blank"
@@ -456,7 +415,7 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
                 {shortenAddress(onchain.owner)}
                 <ExternalLink className="h-3 w-3" />
               </Link>
-            ) : mode === "app" && appData?.creator ? (
+            ) : appData?.creator ? (
               <Link
                 href={`${explorerBase}/address/${appData.creator}`}
                 target="_blank"
@@ -488,8 +447,7 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
             </CollapsibleSection>
           )}
 
-          {mode === "onchain" && (
-            <>
+          <>
               {/* Properties from chain + IPFS */}
               {(onchain?.brickSpec || ipfsTraits.length > 0) && (
                 <CollapsibleSection
@@ -686,113 +644,10 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
                   </pre>
                 </CollapsibleSection>
               )}
-            </>
-          )}
+          </>
 
           {/* ─── IPFS PUSH ─── */}
           <IPFSPushSection tokenId={tokenId} />
-
-          {/* ─── APP DATA VIEW ─── */}
-          {mode === "app" && (
-            <>
-              {appData?.error ? (
-                <Card className="bg-[hsl(var(--ethblox-surface))] border-[hsl(var(--ethblox-border))]">
-                  <CardContent className="p-6 text-center">
-                    <AlertCircle className="h-8 w-8 mx-auto mb-3 text-[hsl(var(--ethblox-text-tertiary))]" />
-                    <p className="text-sm text-[hsl(var(--ethblox-text-secondary))]">No app data found for this token in Redis.</p>
-                  </CardContent>
-                </Card>
-              ) : appData ? (
-                <>
-                  {/* App properties */}
-                  <CollapsibleSection title="Properties" icon={<Box className="h-4 w-4 text-[hsl(var(--ethblox-text-tertiary))]" />} defaultOpen>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3">
-                      <TraitCard label="Kind" value={kindLabel} />
-                      {appData.brickWidth && <TraitCard label="Width" value={appData.brickWidth} />}
-                      {appData.brickDepth && <TraitCard label="Depth" value={appData.brickDepth} />}
-                      {appData.density && <TraitCard label="Density" value={appData.density} />}
-                      {appData.mass && <TraitCard label="Mass" value={appData.mass} />}
-                      {appData.colors && <TraitCard label="Colors" value={appData.colors} />}
-                      {appData.bw_score && <TraitCard label="BW Score" value={appData.bw_score} />}
-                      {appData.bricks && <TraitCard label="Bricks" value={appData.bricks.length} />}
-                    </div>
-                  </CollapsibleSection>
-
-                  {/* App details */}
-                  <CollapsibleSection title="Details" icon={<Database className="h-4 w-4 text-[hsl(var(--ethblox-text-tertiary))]" />} defaultOpen>
-                    <div className="space-y-3 mt-3">
-                      <DetailRow label="Build ID">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-mono text-[hsl(var(--ethblox-text-primary))] truncate max-w-[200px]">{appData.buildId || appData.id}</span>
-                          <CopyButton text={appData.buildId || appData.id || ""} />
-                        </div>
-                      </DetailRow>
-                      <DetailRow label="Token ID">
-                        <span className="text-xs font-mono text-[hsl(var(--ethblox-text-primary))]">{tokenId}</span>
-                      </DetailRow>
-                      {appData.buildHash && (
-                        <DetailRow label="Build Hash">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-mono text-[hsl(var(--ethblox-text-primary))] truncate max-w-[200px]">{appData.buildHash}</span>
-                            <CopyButton text={appData.buildHash} />
-                          </div>
-                        </DetailRow>
-                      )}
-                      {appData.geometryHash && (
-                        <DetailRow label="Geometry Hash">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-mono text-[hsl(var(--ethblox-text-primary))] truncate max-w-[200px]">{appData.geometryHash}</span>
-                            <CopyButton text={appData.geometryHash} />
-                          </div>
-                        </DetailRow>
-                      )}
-                      {appData.specKey && (
-                        <DetailRow label="Spec Key">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-mono text-[hsl(var(--ethblox-text-primary))] truncate max-w-[200px]">{appData.specKey}</span>
-                            <CopyButton text={appData.specKey} />
-                          </div>
-                        </DetailRow>
-                      )}
-                      {appData.txHash && (
-                        <DetailRow label="Tx Hash">
-                          <Link href={`${explorerBase}/tx/${appData.txHash}`} target="_blank"
-                            className="text-xs font-mono text-[hsl(var(--ethblox-accent-cyan))] hover:underline flex items-center gap-1">
-                            {shortenAddress(appData.txHash)}<ExternalLink className="h-3 w-3" />
-                          </Link>
-                        </DetailRow>
-                      )}
-                      {appData.created && <DetailRow label="Created"><span className="text-xs text-[hsl(var(--ethblox-text-primary))]">{new Date(appData.created).toLocaleString()}</span></DetailRow>}
-                      {appData.mintedAt && <DetailRow label="Minted"><span className="text-xs text-[hsl(var(--ethblox-text-primary))]">{new Date(appData.mintedAt).toLocaleString()}</span></DetailRow>}
-                    </div>
-                  </CollapsibleSection>
-
-                  {/* Composition / provenance */}
-                  {appComponents.length > 0 && (
-                    <CollapsibleSection title="Composition (Provenance)" icon={<Link2 className="h-4 w-4 text-[hsl(var(--ethblox-text-tertiary))]" />} defaultOpen>
-                      <div className="space-y-2 mt-3">
-                        {appComponents.map((row) => (
-                          <div key={row.id} className="flex items-center justify-between text-xs">
-                            <Link href={`/explore/${row.id}`} className="text-[hsl(var(--ethblox-accent-cyan))] hover:underline font-mono">
-                              Token #{row.id} - {row.name || `Token #${row.id}`}
-                            </Link>
-                            <span className="text-[hsl(var(--ethblox-text-secondary))]">x{row.count}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </CollapsibleSection>
-                  )}
-
-                  {/* Raw JSON */}
-                  <CollapsibleSection title="Raw App Data" icon={<Link2 className="h-4 w-4 text-[hsl(var(--ethblox-text-tertiary))]" />}>
-                    <pre className="mt-3 text-xs font-mono text-[hsl(var(--ethblox-text-secondary))] bg-[hsl(var(--ethblox-bg))] p-4 rounded-lg overflow-x-auto max-h-[400px] overflow-y-auto">
-                      {JSON.stringify(appData, null, 2)}
-                    </pre>
-                  </CollapsibleSection>
-                </>
-              ) : null}
-            </>
-          )}
         </div>
       </div>
     </div>
