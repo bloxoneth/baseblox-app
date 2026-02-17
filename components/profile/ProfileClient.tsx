@@ -659,6 +659,7 @@ function BuildCard({
     ? `${build.brickWidth}x${build.brickDepth}`
     : null
   const imageUrl = tokenImageGatewayURL(build.tokenId)
+  const isBrick = build.kind === 0 || build.kind === undefined
 
   return (
     <Card className={`flex flex-col overflow-hidden ${isPfp ? 'ring-2 ring-[hsl(var(--ethblox-accent-cyan))]' : ''}`}>
@@ -670,6 +671,8 @@ function BuildCard({
             geometryHash={build.geometryHash || build.buildHash}
             tokenId={build.tokenId}
             imageUrl={imageUrl}
+            transparentBricks={isBrick}
+            showStuds={isBrick}
             className="w-full h-full"
           />
           <span className="absolute top-2 right-2 text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/60 text-white backdrop-blur-sm">

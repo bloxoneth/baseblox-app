@@ -148,6 +148,8 @@ export default function GalleryClient() {
                       bricks={build.bricks}
                       geometryHash={build.geometryHash || build.buildHash}
                       tokenId={build.tokenId}
+                      transparentBricks={isBrick}
+                      showStuds={isBrick}
                       className="h-full w-full"
                     />
                   </div>

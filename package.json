@@ -9,6 +9,7 @@
     "local:stop": "cd ../ethblox-contracts && npm run local:stop",
     "env:anvil": "node scripts/set-network-env.mjs anvil",
     "env:sepolia": "node scripts/set-network-env.mjs sepolia",
+    "metadata:publish": "node scripts/publish-metadata-batch.mjs",
     "build": "next build",
     "dev": "next dev",
     "lint": "eslint .",

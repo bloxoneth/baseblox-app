@@ -3,6 +3,7 @@
 import { Canvas } from "@react-three/fiber"
 import { OrbitControls } from "@react-three/drei"
 import { useMemo, useState } from "react"
+import * as THREE from "three"
 import { tokenImageGatewayURL } from "@/lib/contracts/ethblox-contracts"
 
 type Brick = {
@@ -12,26 +13,130 @@ type Brick = {
   depth?: number
 }
 
-function fallbackFromHash(hash?: string): Brick[] {
-  if (!hash || !hash.startsWith("0x") || hash.length < 10) return []
-  const hex = hash.slice(2)
-  const out: Brick[] = []
-  const count = Math.min(24, Math.floor(hex.length / 6))
-  for (let i = 0; i < count; i++) {
-    const a = parseInt(hex.slice(i * 2, i * 2 + 2), 16) || 0
-    const b = parseInt(hex.slice(i * 2 + 2, i * 2 + 4), 16) || 0
-    const c = parseInt(hex.slice(i * 2 + 4, i * 2 + 6), 16) || 0
-    const x = (a % 8) - 4
-    const y = b % 6
-    const z = (c % 8) - 4
-    out.push({
-      color: `#${hex.slice((i * 6) % (hex.length - 6), ((i * 6) % (hex.length - 6)) + 6)}`,
-      position: [x, y, z],
-      width: 1,
-      depth: 1,
-    })
+const BRICK_HEIGHT = 1
+const STUD_RADIUS = 0.22
+
+function BrickMesh({
+  brick,
+  glass = false,
+  showStuds = false,
+}: {
+  brick: Brick
+  glass?: boolean
+  showStuds?: boolean
+}) {
+  const width = brick.width ?? 1
+  const depth = brick.depth ?? 1
+  const color = brick.color ?? "#f0b429"
+  const glassColor = "#8ecfff"
+  const [x, y, z] = brick.position
+
+  const studs = useMemo(() => {
+    if (!showStuds) return []
+    const maxStuds = 100
+    const out: Array<[number, number, number]> = []
+    for (let ix = 0; ix < width; ix++) {
+      for (let iz = 0; iz < depth; iz++) {
+        if (out.length >= maxStuds) break
+        out.push([
+          x + ix - width / 2 + 0.5,
+          y + BRICK_HEIGHT / 2 + 0.02,
+          z + iz - depth / 2 + 0.5,
+        ])
+      }
+    }
+    return out
+  }, [showStuds, width, depth, x, y, z])
+
+  if (glass) {
+    return (
+      <group>
+        <mesh position={[x, y, z]} castShadow receiveShadow>
+          <boxGeometry args={[width, BRICK_HEIGHT, depth]} />
+          <meshPhysicalMaterial
+            color={glassColor}
+            transparent
+            opacity={0.4}
+            roughness={0.05}
+            metalness={0}
+            transmission={0.75}
+            thickness={0.6}
+            ior={1.45}
+            envMapIntensity={1.2}
+            clearcoat={1}
+            clearcoatRoughness={0.08}
+          />
+        </mesh>
+        {studs.map((pos, idx) => (
+          <mesh key={idx} position={pos} castShadow>
+            <sphereGeometry args={[STUD_RADIUS, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2]} />
+            <meshPhysicalMaterial
+              color={glassColor}
+              transparent
+              opacity={0.5}
+              roughness={0.05}
+              metalness={0}
+              transmission={0.8}
+              thickness={0.3}
+              ior={1.45}
+              envMapIntensity={1.2}
+              clearcoat={1}
+              clearcoatRoughness={0.08}
+            />
+          </mesh>
+        ))}
+      </group>
+    )
   }
-  return out
+
+  return (
+    <group>
+      <mesh position={[x, y, z]} castShadow receiveShadow>
+        <boxGeometry args={[width, BRICK_HEIGHT, depth]} />
+        <meshStandardMaterial color={color} roughness={0.42} metalness={0.12} />
+      </mesh>
+      {studs.map((pos, idx) => (
+        <mesh key={idx} position={pos} castShadow>
+          <sphereGeometry args={[STUD_RADIUS, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2]} />
+          <meshStandardMaterial color={color} roughness={0.3} metalness={0.18} />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
+function StudField({ radius = 18, spacing = 1.1 }: { radius?: number; spacing?: number }) {
+  const studs = useMemo(() => {
+    const out: Array<[number, number, number]> = []
+    for (let x = -radius; x <= radius; x++) {
+      for (let z = -radius; z <= radius; z++) {
+        if (x * x + z * z > radius * radius) continue
+        out.push([x * spacing, -0.55, z * spacing])
+      }
+    }
+    return out
+  }, [radius, spacing])
+
+  return (
+    <group>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.62, 0]} receiveShadow>
+        <circleGeometry args={[radius * spacing + 2, 80]} />
+        <meshStandardMaterial color="#040b16" roughness={0.92} metalness={0} />
+      </mesh>
+      {studs.map((p, i) => (
+        <mesh key={i} position={p as [number, number, number]} receiveShadow>
+          <sphereGeometry args={[0.19, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2]} />
+          <meshStandardMaterial color={i % 7 === 0 ? "#d6dde8" : "#091c3d"} roughness={0.28} metalness={0.22} />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
+function fallbackFromHash(hash?: string): Brick[] {
+  // Geometry hash alone is not enough to reconstruct canonical brick layout.
+  // Prefer image fallback instead of rendering synthetic/random cubes.
+  return []
 }
 
 function normalizeBricks(bricks?: Brick[], geometryHash?: string): Brick[] {
@@ -88,12 +193,18 @@ export function BuildVoxelPreview({
   tokenId,
   imageUrl,
   className,
+  transparentBricks = false,
+  showStuds = false,
+  sceneMode = "default",
 }: {
   bricks?: Brick[]
   geometryHash?: string
   tokenId?: string | number
   imageUrl?: string
   className?: string
+  transparentBricks?: boolean
+  showStuds?: boolean
+  sceneMode?: "default" | "marketplace"
 }) {
   const voxels = useMemo(() => normalizeBricks(bricks, geometryHash), [bricks, geometryHash])
   const [imageFailed, setImageFailed] = useState(false)
@@ -123,25 +234,34 @@ export function BuildVoxelPreview({
   return (
     <div className={className ?? "w-full h-full"}>
       <Canvas
-        camera={{ position: [8, 8, 8], fov: 42 }}
+        camera={sceneMode === "marketplace" ? { position: [9, 6.5, 9], fov: 38 } : { position: [8, 8, 8], fov: 42 }}
+        shadows
         fallback={fallbackNode}
         onCreated={({ gl }) => {
           const canvas = gl.domElement
           const onLost = () => setDisable3d(true)
           canvas.addEventListener("webglcontextlost", onLost, { once: true })
+          gl.toneMapping = THREE.ACESFilmicToneMapping
+          gl.toneMappingExposure = sceneMode === "marketplace" ? 1.06 : 1
         }}
       >
-        <ambientLight intensity={0.75} />
-        <directionalLight position={[8, 12, 8]} intensity={1.1} />
+        <color attach="background" args={sceneMode === "marketplace" ? ["#070d1a"] : ["#111927"]} />
+        <ambientLight intensity={sceneMode === "marketplace" ? 0.38 : 0.62} />
+        <hemisphereLight intensity={sceneMode === "marketplace" ? 0.45 : 0.25} color="#d7e4ff" groundColor="#0a1022" />
+        <directionalLight position={[9, 12, 8]} intensity={sceneMode === "marketplace" ? 1.35 : 1.05} castShadow />
+        <pointLight position={[-6, 5, -3]} intensity={sceneMode === "marketplace" ? 0.65 : 0.25} color="#8cc4ff" />
+        {sceneMode === "marketplace" && <StudField />}
         <group>
-          {voxels.map((b, i) => (
-            <mesh key={i} position={b.position as [number, number, number]}>
-              <boxGeometry args={[b.width ?? 1, 1, b.depth ?? 1]} />
-              <meshStandardMaterial color={b.color ?? "#f0b429"} roughness={0.4} metalness={0.1} />
-            </mesh>
-          ))}
+          {voxels.map((b, i) => <BrickMesh key={i} brick={b} glass={transparentBricks} showStuds={showStuds} />)}
         </group>
-        <OrbitControls enablePan={false} enableZoom={false} autoRotate autoRotateSpeed={0.9} />
+        <OrbitControls
+          enablePan={false}
+          enableZoom={sceneMode === "marketplace"}
+          autoRotate
+          autoRotateSpeed={sceneMode === "marketplace" ? 0.55 : 0.9}
+          minDistance={5}
+          maxDistance={20}
+        />
       </Canvas>
     </div>
   )

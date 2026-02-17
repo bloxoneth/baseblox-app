@@ -9,7 +9,6 @@ import {
   CHAIN_ID,
   BASE_METADATA_URI,
   BASE_METADATA_CID,
-  tokenMetadataGatewayURL,
 } from "@/lib/contracts/ethblox-contracts"
 
 // Reads token data directly from chain + IPNS metadata
@@ -30,6 +29,28 @@ export async function GET(
 
   const onchain: Record<string, unknown> = { tokenId: id }
   const errors: string[] = []
+  let tokenURI: string | null = null
+
+  let exists = false
+  try {
+    exists = Boolean(await contract.exists(id))
+  } catch (e: any) {
+    errors.push(`exists: ${e.reason ?? e.message}`)
+  }
+  onchain.exists = exists
+
+  if (!exists) {
+    return NextResponse.json({
+      onchain,
+      ipfsMetadata: null,
+      ipfsURL: null,
+      contract: CONTRACTS.BUILD_NFT,
+      chain: `${process.env.NEXT_PUBLIC_NETWORK_NAME ?? "Base Sepolia"} (${CHAIN_ID})`,
+      baseMetadataURI: BASE_METADATA_URI,
+      notFound: true,
+      errors: errors.length > 0 ? errors : ["token does not exist"],
+    })
+  }
 
   // Owner
   try {
@@ -40,7 +61,8 @@ export async function GET(
 
   // tokenURI (from contract baseTokenURI)
   try {
-    onchain.tokenURI = await contract.tokenURI(id)
+    tokenURI = String(await contract.tokenURI(id))
+    onchain.tokenURI = tokenURI
   } catch (e: any) {
     errors.push(`tokenURI: ${e.reason ?? e.message}`)
   }
@@ -76,16 +98,28 @@ export async function GET(
     errors.push(`lockedBlox: ${e.reason ?? e.message}`)
   }
 
-  // Fetch IPFS metadata via Lighthouse gateway (primary) with fallbacks
-  const metadataURL = tokenMetadataGatewayURL(id)
+  const ipfsToGateway = (uri: string, gatewayBase: string) =>
+    `${gatewayBase.replace(/\/+$/, "")}/${uri.replace(/^ipfs:\/\//, "")}`
+
+  // Fetch IPFS metadata from the actual on-chain tokenURI first.
   let ipfsMetadata: Record<string, unknown> | null = null
   let resolvedURL: string | null = null
 
-  const fallbackGateways = [
-    metadataURL,
-    `https://dweb.link/ipfs/${BASE_METADATA_CID}/${id}.json`,
-    `https://ipfs.io/ipfs/${BASE_METADATA_CID}/${id}.json`,
-  ]
+  const fallbackGateways: string[] = []
+  if (tokenURI) {
+    if (tokenURI.startsWith("ipfs://")) {
+      fallbackGateways.push(ipfsToGateway(tokenURI, "https://gateway.lighthouse.storage/ipfs"))
+      fallbackGateways.push(ipfsToGateway(tokenURI, "https://gateway.pinata.cloud/ipfs"))
+      fallbackGateways.push(ipfsToGateway(tokenURI, "https://dweb.link/ipfs"))
+      fallbackGateways.push(ipfsToGateway(tokenURI, "https://ipfs.io/ipfs"))
+    } else if (tokenURI.startsWith("http://") || tokenURI.startsWith("https://")) {
+      fallbackGateways.push(tokenURI)
+    }
+  }
+  // Legacy fallback for old CIDs/env defaults.
+  fallbackGateways.push(`https://gateway.lighthouse.storage/ipfs/${BASE_METADATA_CID}/${id}.json`)
+  fallbackGateways.push(`https://dweb.link/ipfs/${BASE_METADATA_CID}/${id}.json`)
+  fallbackGateways.push(`https://ipfs.io/ipfs/${BASE_METADATA_CID}/${id}.json`)
 
   for (const url of fallbackGateways) {
     try {

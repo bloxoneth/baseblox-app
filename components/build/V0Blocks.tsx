@@ -46,6 +46,9 @@ import { useBloxBalance } from "@/lib/web3/hooks/useBloxBalance"
 import { BrickMintModal } from "./BrickMintModal"
 import { calculateTotalBlox } from "@/lib/brick-utils"
 import { getBrickByDimensions, type BrickNFT, BRICK_DENSITIES, normalizeBrickKey } from "@/data/bricks"
+import { BUILD_NFT_ABI, CONTRACTS } from "@/lib/contracts/ethblox-contracts"
+import { computeSpecKey } from "@/lib/brickSpec"
+import { ethers } from "ethers"
 
 const BRICK_HEIGHT = 1.0
 const GROUND_HEIGHT = 0.25
@@ -743,6 +746,7 @@ export default function V0Blocks({
   
   // Set of minted brick keys loaded from Redis: e.g. "1x1-D1", "2x2-D27"
   const [mintedBrickKeys, setMintedBrickKeys] = useState<Set<string>>(new Set())
+  const onChainMintedBrickCacheRef = useRef<Map<string, boolean>>(new Map())
 
   const refreshMintedBrickKeys = useCallback(async (): Promise<Set<string>> => {
     try {
@@ -756,6 +760,25 @@ export default function V0Blocks({
       return next
     } catch {
       return new Set<string>()
+    }
+  }, [])
+
+  const checkBrickMintedOnChain = useCallback(async (brickKey: string, w: number, d: number, dens: number) => {
+    try {
+      const cached = onChainMintedBrickCacheRef.current.get(brickKey)
+      if (typeof cached === "boolean") return cached
+      if (typeof window === "undefined") return false
+      const eth = (window as unknown as { ethereum?: unknown }).ethereum
+      if (!eth) return false
+      const provider = new ethers.BrowserProvider(eth)
+      const contract = new ethers.Contract(CONTRACTS.BUILD_NFT, BUILD_NFT_ABI, provider)
+      const specKey = computeSpecKey(w, d, dens)
+      const minted = Boolean(await contract.brickSpecConsumed(specKey))
+      onChainMintedBrickCacheRef.current.set(brickKey, minted)
+      return minted
+    } catch (err) {
+      console.warn("[v0] brickSpecConsumed on-chain check failed:", err)
+      return false
     }
   }, [])
 
@@ -1212,6 +1235,21 @@ export default function V0Blocks({
             addToHistory([...bricks, newBrick])
             return
           }
+          const onChainMinted = await checkBrickMintedOnChain(
+            brickKey,
+            ghostBrick.width,
+            ghostBrick.depth,
+            density,
+          )
+          if (onChainMinted) {
+            setMintedBrickKeys((prev) => {
+              const next = new Set(prev)
+              next.add(brickKey)
+              return next
+            })
+            addToHistory([...bricks, newBrick])
+            return
+          }
           // Not minted - show mint modal
           const brickNFT = getBrickByDimensions(ghostBrick.width, ghostBrick.depth, density)
           if (brickNFT) {
@@ -1246,6 +1284,7 @@ export default function V0Blocks({
       onNFTPlaced,
       toast,
       refreshMintedBrickKeys,
+      checkBrickMintedOnChain,
     ],
   )
 
@@ -2288,6 +2327,7 @@ ghostPositionRef.current = { x: snappedX, z: snappedZ }
       // Add to local minted set so future placements are instant (normalized)
       if (mintedBrick) {
         const key = normalizeBrickKey(mintedBrick.width, mintedBrick.depth, mintedBrick.density)
+        onChainMintedBrickCacheRef.current.set(key, true)
         setMintedBrickKeys(prev => new Set([...prev, key]))
       }
       if (pendingBrickPlacement) {

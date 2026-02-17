@@ -1,4 +1,5 @@
 import { ethers } from "ethers"
+import { computeSpecKey } from "../brickSpec"
 
 // Constants
 export const FEE_PER_MINT = ethers.parseEther("0.0001") // 0.0001 ETH mint fee
@@ -97,6 +98,7 @@ export const BUILD_NFT_ABI = [
   "function maxMass() view returns (uint256)",
   "function nextTokenId() view returns (uint256)",
   "function hashToTokenId(bytes32) view returns (uint256)",
+  "function brickSpecConsumed(bytes32) view returns (bool)",
   "function paused() view returns (bool)",
   "function blox() view returns (address)",
   "function bloxToken() view returns (address)",
@@ -196,6 +198,17 @@ export async function getMaxMass(provider: ethers.BrowserProvider): Promise<bigi
 export async function getNextTokenId(provider: ethers.BrowserProvider): Promise<bigint> {
   const contract = new ethers.Contract(CONTRACTS.BUILD_NFT, BUILD_NFT_ABI, provider)
   return await contract.nextTokenId()
+}
+
+export async function isBrickSpecMintedOnChain(
+  provider: ethers.BrowserProvider,
+  width: number,
+  depth: number,
+  density: number,
+): Promise<boolean> {
+  const contract = new ethers.Contract(CONTRACTS.BUILD_NFT, BUILD_NFT_ABI, provider)
+  const specKey = computeSpecKey(width, depth, density)
+  return Boolean(await contract.brickSpecConsumed(specKey))
 }
 
 export async function mintBuildNFT(

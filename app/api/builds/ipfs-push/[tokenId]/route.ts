@@ -113,15 +113,23 @@ async function buildMetadataForToken(tokenId: string) {
   if (!build) return null
 
   const kind = build.kind ?? 0
-  const kindLabel = kind === 0 ? "Brick" : "Build"
+  const kindLabel = kind === 0 ? "Brick" : kind === 2 ? "Collectors Edition" : "Build"
   const w = build.brickWidth ?? build.baseWidth ?? 1
   const d = build.brickDepth ?? build.baseDepth ?? 1
   const density = build.density ?? 1
   const mass = build.mass ?? (w * d * density)
+  const appBaseUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_APP_ORIGIN || "https://ethblox.art").replace(/\/+$/, "")
+  const normalizedName =
+    build.name && String(build.name).trim().length > 0
+      ? String(build.name).trim()
+      : kind === 0
+        ? `Brick ${Math.min(w, d)}x${Math.max(w, d)} D${density}`
+        : `ETHBLOX ${kindLabel} #${tokenId}`
 
   // Build attributes array
   const attributes: { trait_type: string; value: string | number }[] = [
-    { trait_type: "kind", value: kind },
+    { trait_type: "kind", value: kindLabel },
+    { trait_type: "kindId", value: kind },
     { trait_type: "mass", value: mass },
     { trait_type: "density", value: density },
   ]
@@ -155,10 +163,11 @@ async function buildMetadataForToken(tokenId: string) {
   }
 
   return {
-    name: build.name || `ETHBLOX #${tokenId}`,
+    name: normalizedName,
     description: `ETHBLOX ${kindLabel} - ${w}x${d} density ${density}`,
     image: tokenImageURI(tokenId),
-    external_url: `https://ethblox.art/explore/${tokenId}`,
+    animation_url: `${appBaseUrl}/viewer/${tokenId}`,
+    external_url: `${appBaseUrl}/explore/${tokenId}`,
     attributes,
   }
 }

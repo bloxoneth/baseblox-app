@@ -14,6 +14,11 @@ const AUTO_SET_BASE_TOKEN_URI_ON_MINT = process.env.AUTO_SET_BASE_TOKEN_URI_ON_M
 const BASE_TOKEN_URI_TARGET = process.env.BASE_TOKEN_URI_TARGET || process.env.NEXT_PUBLIC_BASE_METADATA_URI || ""
 const BASE_TOKEN_URI_OWNER_KEY = process.env.BASE_TOKEN_URI_OWNER_KEY || process.env.PRIVATE_KEY || ""
 
+const CHAIN_READ_ABI = [
+  "function kindOf(uint256 tokenId) view returns (uint8)",
+  "function brickSpecOf(uint256 tokenId) view returns (uint8 width, uint8 depth, uint16 density)",
+]
+
 // POST /api/builds/mint - Save full build data + mint info to Redis
 export async function POST(request: NextRequest) {
   try {
@@ -72,17 +77,40 @@ export async function POST(request: NextRequest) {
         canonicalComposition = {}
       } else {
         const baseBrickKey = normalizeBrickKey(1, 1, density)
-        const baseTokenId = await redis.get<string>(rk(`brick:spec:${baseBrickKey}`))
-        if (!baseTokenId) {
-          return NextResponse.json(
-            { error: `Missing base component ${baseBrickKey}. Mint 1x1 first for this density.` },
-            { status: 409 },
-          )
-        }
+        let baseTokenId = await redis.get<string>(rk(`brick:spec:${baseBrickKey}`))
 
         const incomingIds = (Array.isArray(body.componentBuildIds) ? body.componentBuildIds : []).map(String)
         const incomingCounts = (Array.isArray(body.componentCounts) ? body.componentCounts : []).map((n) => Number(n))
         const expectedCount = Number(area)
+
+        // Redis can lag or be empty in test resets. Accept the incoming base component
+        // when it provably matches a 1x1 brick of the same density on-chain.
+        if (!baseTokenId && incomingIds.length === 1 && incomingCounts.length === 1 && incomingCounts[0] === expectedCount) {
+          try {
+            const provider = new ethers.JsonRpcProvider(RPC_URL)
+            const contract = new ethers.Contract(CONTRACTS.BUILD_NFT, CHAIN_READ_ABI, provider)
+            const candidateId = BigInt(incomingIds[0])
+            const candidateKind = Number(await contract.kindOf(candidateId))
+            const [cw, cd, cden] = await contract.brickSpecOf(candidateId)
+            if (candidateKind === 0 && Number(cw) === 1 && Number(cd) === 1 && Number(cden) === Number(density)) {
+              baseTokenId = incomingIds[0]
+              // Heal Redis index for future requests.
+              await redis.set(rk(`brick:spec:${baseBrickKey}`), String(baseTokenId))
+            }
+          } catch {
+            // Keep validation path below for error reporting.
+          }
+        }
+
+        if (!baseTokenId) {
+          return NextResponse.json(
+            {
+              error: `Missing base component ${baseBrickKey}. Mint 1x1 first for this density.`,
+              hint: "If this 1x1 already exists on-chain, import/backfill brick spec indexes into Redis.",
+            },
+            { status: 409 },
+          )
+        }
 
         if (
           incomingIds.length !== 1 ||
@@ -143,10 +171,17 @@ export async function POST(request: NextRequest) {
 
     const uniqueBuildId = `${tokenId}_${Date.now()}_${buildHash.slice(0, 8)}`
 
+    const resolvedName =
+      body.buildName && String(body.buildName).trim().length > 0
+        ? String(body.buildName).trim()
+        : kind === 0
+          ? `Brick ${Math.min(brickW, brickD)}x${Math.max(brickW, brickD)} D${density ?? 1}`
+          : "Untitled Build"
+
     const mintedBuild: Build = {
       // Identity
       id: uniqueBuildId,
-      name: body.buildName || "Untitled Build",
+      name: resolvedName,
       creator: walletAddress.toLowerCase(),
 
       // Canonical geometry
@@ -335,14 +370,22 @@ async function verifyAndOptionallyAlignTokenURI(tokenId: string) {
 function buildMetadataFromBuild(build: Build) {
   const tokenId = String(build.tokenId)
   const kind = build.kind ?? 0
-  const kindLabel = kind === 0 ? "Brick" : "Build"
+  const kindLabel = kind === 0 ? "Brick" : kind === 2 ? "Collectors Edition" : "Build"
   const w = build.brickWidth ?? build.baseWidth ?? 1
   const d = build.brickDepth ?? build.baseDepth ?? 1
   const density = build.density ?? 1
   const mass = build.mass ?? (w * d * density)
+  const appBaseUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_APP_ORIGIN || "https://ethblox.art").replace(/\/+$/, "")
+  const normalizedName =
+    build.name && String(build.name).trim().length > 0
+      ? String(build.name).trim()
+      : kind === 0
+        ? `Brick ${Math.min(w, d)}x${Math.max(w, d)} D${density}`
+        : `ETHBLOX ${kindLabel} #${tokenId}`
 
   const attributes: { trait_type: string; value: string | number }[] = [
-    { trait_type: "kind", value: kind },
+    { trait_type: "kind", value: kindLabel },
+    { trait_type: "kindId", value: kind },
     { trait_type: "mass", value: mass },
     { trait_type: "density", value: density },
   ]
@@ -369,10 +412,11 @@ function buildMetadataFromBuild(build: Build) {
   }
 
   return {
-    name: build.name || `ETHBLOX #${tokenId}`,
+    name: normalizedName,
     description: `ETHBLOX ${kindLabel} - ${w}x${d} density ${density}`,
     image: tokenImageURI(tokenId),
-    external_url: `https://ethblox.art/explore/${tokenId}`,
+    animation_url: `${appBaseUrl}/viewer/${tokenId}`,
+    external_url: `${appBaseUrl}/explore/${tokenId}`,
     attributes,
   }
 }

@@ -91,20 +91,54 @@ interface ValidationResult {
   details?: string
 }
 
-// Determine build kind: explicit URL kind=0 means brick, otherwise multi-brick = BUILD
+function isLikelyBrickGeometry(debugData?: MintDebugData | null): boolean {
+  if (!debugData || !Array.isArray(debugData.bricks) || debugData.bricks.length === 0) return false
+
+  const layerY = debugData.bricks[0]?.position?.[1]
+  if (!Number.isFinite(layerY)) return false
+
+  // kind=0 brick must be single-layer and fill full rectangle footprint
+  for (const b of debugData.bricks) {
+    if (!Array.isArray(b.position) || b.position.length !== 3) return false
+    if (Math.abs((b.position[1] ?? 0) - layerY) > 1e-6) return false
+  }
+
+  const rectArea = Number(debugData.baseWidth || 0) * Number(debugData.baseDepth || 0)
+  const occupiedArea = debugData.bricks.reduce((sum, b) => {
+    const w = Number.isFinite(b.width) ? b.width : 1
+    const d = Number.isFinite(b.depth) ? b.depth : 1
+    return sum + Math.max(1, w) * Math.max(1, d)
+  }, 0)
+
+  return rectArea > 0 && occupiedArea === rectArea
+}
+
+// Determine build kind: explicit URL wins, otherwise infer from geometry/composition
 function detectKind(
   searchParams: URLSearchParams, 
   brickCount: number, 
-  composition?: Record<string, any>
+  composition?: Record<string, any>,
+  debugData?: MintDebugData | null,
 ): number {
   const urlKind = searchParams.get("kind")
   if (urlKind === "0") return BUILD_KIND.BRICK
   if (urlKind === "1") return BUILD_KIND.BUILD
-  // Multi-brick assemblies are builds (kind=1), even without NFT composition
-  if (brickCount > 1) return BUILD_KIND.BUILD
+
+  // Brick mint modal passes explicit dimensions for kind=0 flows.
+  const urlWidth = Number(searchParams.get("width") || "")
+  const urlDepth = Number(searchParams.get("depth") || "")
+  if (Number.isFinite(urlWidth) && Number.isFinite(urlDepth) && urlWidth > 0 && urlDepth > 0) {
+    return BUILD_KIND.BRICK
+  }
+
   // Has NFT components = build
   if (composition && Object.keys(composition).length > 0) return BUILD_KIND.BUILD
-  return BUILD_KIND.BRICK
+  if (brickCount <= 1) return BUILD_KIND.BRICK
+
+  // Multiple bricks without explicit composition can still be a brick if they form one rectangle.
+  if (isLikelyBrickGeometry(debugData)) return BUILD_KIND.BRICK
+
+  return BUILD_KIND.BUILD
 }
 
 // Generate specKey: keccak256(abi.encodePacked(width, depth, density))
@@ -211,7 +245,7 @@ export function MintDebugClient() {
     if (!debugData) return {}
     if (Object.keys(explicitCompositionMap).length > 0) return explicitCompositionMap
 
-    const kind = detectKind(searchParams, debugData.bricks.length, explicitCompositionMap)
+    const kind = detectKind(searchParams, debugData.bricks.length, explicitCompositionMap, debugData)
     if (kind === BUILD_KIND.BRICK) return explicitCompositionMap
     if (!Array.isArray(debugData.bricks) || debugData.bricks.length === 0) return explicitCompositionMap
 
@@ -475,7 +509,7 @@ export function MintDebugClient() {
   const buildMintParams = (): MintParams | null => {
     if (!debugData || !generatedHash) return null
     
-    const kind = detectKind(searchParams, debugData.bricks.length, compositionMap)
+    const kind = detectKind(searchParams, debugData.bricks.length, compositionMap, debugData)
     const hasComponents = Object.keys(compositionMap).length > 0
 
     // Read density from URL params or sessionStorage data
@@ -706,9 +740,19 @@ export function MintDebugClient() {
         
         const mass = debugData.totalBloxMass ?? debugData.bricks.length
         const colors = debugData.uniqueColors ?? new Set(debugData.bricks.map(b => b.color)).size
+        const compositionFromParams: Record<string, { count: number; name: string }> = {}
+        for (let i = 0; i < Math.min(params.componentBuildIds.length, params.componentCounts.length); i++) {
+          const compId = params.componentBuildIds[i].toString()
+          const compCount = Number(params.componentCounts[i])
+          if (!compId || compCount <= 0) continue
+          compositionFromParams[compId] = {
+            count: compCount,
+            name: compositionMap[compId]?.name || `Token #${compId}`,
+          }
+        }
         
         try {
-          await fetch("/api/builds/mint", {
+          const saveRes = await fetch("/api/builds/mint", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -738,19 +782,25 @@ export function MintDebugClient() {
               brickDepth: urlDepth ? parseInt(urlDepth) : debugData.baseDepth,
               
               // Composition (which existing NFTs are used in this build)
-              composition: compositionMap,
+              composition: compositionFromParams,
               
               // Contract params (for verification / future IPFS upload)
               geometryHash: params.geometryHash,
-              componentBuildIds: params.componentBuildIds,
-              componentCounts: params.componentCounts,
+              componentBuildIds: params.componentBuildIds.map((id) => id.toString()),
+              componentCounts: params.componentCounts.map((count) => count.toString()),
               
               // Build metadata
               metadata: debugData.metadata,
             }),
           })
+          if (!saveRes.ok) {
+            const errJson = await saveRes.json().catch(() => null)
+            const errMsg = errJson?.error || `HTTP ${saveRes.status}`
+            setMintError(`Mint succeeded, but saving app data failed: ${errMsg}`)
+          }
         } catch (saveErr) {
           console.error("Failed to save mint to Redis:", saveErr)
+          setMintError("Mint succeeded, but saving app data failed (network/server error).")
         }
       }
       
@@ -791,7 +841,7 @@ export function MintDebugClient() {
   const getDisplayComponentPayload = () => {
     if (!debugData) return { ids: [] as string[], counts: [] as number[] }
 
-    const kind = detectKind(searchParams, debugData.bricks.length, compositionMap)
+    const kind = detectKind(searchParams, debugData.bricks.length, compositionMap, debugData)
     const mintDensity = parseInt(searchParams.get("density") || "1")
 
     if (kind === BUILD_KIND.BRICK) {
@@ -1084,7 +1134,7 @@ export function MintDebugClient() {
                   variant="ghost" 
                   size="sm" 
                   onClick={() => {
-                    const kind = detectKind(searchParams, debugData.bricks.length, compositionMap)
+                    const kind = detectKind(searchParams, debugData.bricks.length, compositionMap, debugData)
                     const componentPayload = getDisplayComponentPayload()
                     const mintDensityCopy = parseInt(searchParams.get("density") || "1")
                     const mintParams = {
@@ -1111,7 +1161,7 @@ export function MintDebugClient() {
             <CardContent>
               <pre className="p-3 bg-[hsl(var(--ethblox-bg))] rounded-lg text-xs font-mono text-[hsl(var(--ethblox-green))] overflow-auto max-h-80">
 {(() => {
-  const kind = detectKind(searchParams, debugData.bricks.length, compositionMap)
+  const kind = detectKind(searchParams, debugData.bricks.length, compositionMap, debugData)
   const componentPayload = getDisplayComponentPayload()
   const mintDensityDisplay = parseInt(searchParams.get("density") || "1")
   return JSON.stringify({
@@ -1143,7 +1193,7 @@ export function MintDebugClient() {
                   variant="ghost" 
                   size="sm" 
                   onClick={() => {
-                    const kind = detectKind(searchParams, debugData.bricks.length, compositionMap)
+                    const kind = detectKind(searchParams, debugData.bricks.length, compositionMap, debugData)
                     const componentPayload = getDisplayComponentPayload()
                     const mintDensity = parseInt(searchParams.get("density") || "1")
                     const specKey = generateSpecKey(debugData.baseWidth, debugData.baseDepth, mintDensity)
@@ -1174,7 +1224,7 @@ export function MintDebugClient() {
             <CardContent>
               <pre className="p-3 bg-[hsl(var(--ethblox-bg))] rounded-lg text-xs font-mono text-[hsl(var(--ethblox-accent-cyan))] overflow-auto max-h-96">
 {(() => {
-  const kind = detectKind(searchParams, debugData.bricks.length, compositionMap)
+  const kind = detectKind(searchParams, debugData.bricks.length, compositionMap, debugData)
   const componentPayload = getDisplayComponentPayload()
   const mintDensity = parseInt(searchParams.get("density") || "1")
   const specKey = generateSpecKey(debugData.baseWidth, debugData.baseDepth, mintDensity)

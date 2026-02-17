@@ -32,7 +32,12 @@ import { BuildVoxelPreview } from "@/components/preview/BuildVoxelPreview"
 type DataMode = "onchain" | "app"
 type ComponentRow = { id: string; count: number; name?: string }
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json())
+const fetcher = async (url: string) => {
+  const r = await fetch(url)
+  if (r.status === 404) return null
+  if (!r.ok) throw new Error(`Request failed: ${r.status}`)
+  return r.json()
+}
 
 function shortenAddress(addr: string) {
   if (!addr) return ""
@@ -59,19 +64,25 @@ function normalizeComponents(input: any): ComponentRow[] {
     })
   }
 
-  if (input?.composition && typeof input.composition === "object") {
+  const hasComposition = input?.composition && typeof input.composition === "object" && Object.keys(input.composition).length > 0
+  const hasComponentArrays =
+    Array.isArray(input?.componentBuildIds) &&
+    Array.isArray(input?.componentCounts) &&
+    input.componentBuildIds.length > 0 &&
+    input.componentCounts.length > 0
+
+  // Prefer a single source to avoid accidental double counting.
+  if (hasComposition) {
     for (const [id, info] of Object.entries(input.composition as Record<string, any>)) {
       put(id, info?.count, info?.name)
     }
-  }
-  if (Array.isArray(input?.componentBuildIds) && Array.isArray(input?.componentCounts)) {
+  } else if (hasComponentArrays) {
     const ids = input.componentBuildIds
     const counts = input.componentCounts
     for (let i = 0; i < Math.min(ids.length, counts.length); i++) {
       put(ids[i], counts[i])
     }
-  }
-  if (Array.isArray(input?.components)) {
+  } else if (Array.isArray(input?.components)) {
     for (const c of input.components) {
       put(c?.componentId ?? c?.id, c?.count, c?.name)
     }
@@ -186,6 +197,11 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
     fetcher,
     { revalidateOnFocus: false }
   )
+  const { data: mintedIndex } = useSWR(
+    "/api/builds/check-minted",
+    fetcher,
+    { revalidateOnFocus: false }
+  )
 
   const isLoading = mode === "onchain" ? onchainLoading : appLoading
   const basescanURL = `${explorerBase}/token/${CONTRACTS.BUILD_NFT}?a=${tokenId}`
@@ -228,6 +244,37 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
   const ipfsGeom = ipfsMetadata?.geometryHash ?? traitValue(ipfsMetadata, "geometryHash") ?? onchain?.geometryHash ?? ""
   const appCompSig = appComponents.map((c) => `${c.id}x${c.count}`).join(",")
   const ipfsCompSig = ipfsComponents.map((c) => `${c.id}x${c.count}`).join(",")
+  const chainKind = typeof onchain?.kind === "number" ? onchain.kind : undefined
+  const chainDensity = Number(onchain?.brickSpec?.density ?? NaN)
+  const chainMass =
+    typeof onchain?.lockedBlox === "string" && onchain.lockedBlox
+      ? Number(ethers.formatUnits(BigInt(onchain.lockedBlox), 18))
+      : undefined
+  const chainGeom =
+    typeof onchain?.geometryHash === "string" && onchain.geometryHash !== ethers.ZeroHash
+      ? onchain.geometryHash
+      : undefined
+  const compareKind = chainKind ?? ipfsKind
+  const compareDensity = Number.isFinite(chainDensity) ? chainDensity : ipfsDensity
+  const compareMass = Number.isFinite(chainMass as number) ? chainMass : ipfsMass
+  const compareGeom = chainGeom ?? ipfsGeom
+  const chainWidth = Number(onchain?.brickSpec?.width ?? NaN)
+  const chainDepth = Number(onchain?.brickSpec?.depth ?? NaN)
+  const chainArea = Number.isFinite(chainWidth) && Number.isFinite(chainDepth) ? chainWidth * chainDepth : 0
+  const baseByDensity = mintedIndex?.baseBrickTokensByDensity || {}
+  const canonicalCompSig =
+    chainKind === 0
+      ? chainArea <= 1
+        ? "(none)"
+        : (() => {
+            const baseTokenId = baseByDensity[String(compareDensity)]
+            return baseTokenId ? `${baseTokenId}x${chainArea}` : `1x1-D${compareDensity}x${chainArea}`
+          })()
+      : (ipfsCompSig || "(none)")
+  const compareTraits = ipfsTraits.filter((t) => {
+    const k = String(t.label || "").trim().toLowerCase()
+    return !["kind", "density", "mass", "geometry hash", "geometryhash", "width", "depth"].includes(k)
+  })
 
   const name =
     mode === "onchain"
@@ -239,6 +286,8 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
       : null
   const kindRaw = mode === "onchain" ? onchain?.kind : appData?.kind
   const kindLabel = kindRaw === 0 ? "Brick" : kindRaw > 0 ? "Build" : "--"
+  const tokenExistsOnchain = onchain?.exists !== false
+  const tokenMissing = mode === "onchain" ? !tokenExistsOnchain : !appData
 
   const handleRegisterLicense = async () => {
     try {
@@ -273,6 +322,34 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
     } finally {
       setLicenseActionLoading(null)
     }
+  }
+
+  if (tokenMissing) {
+    return (
+      <div className="container mx-auto px-6 max-w-[1200px]">
+        <div className="flex items-center justify-between mb-6">
+          <Link href="/explore">
+            <Button variant="ghost" className="text-[hsl(var(--ethblox-text-secondary))] bg-transparent hover:text-[hsl(var(--ethblox-text-primary))]">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+          </Link>
+        </div>
+        <Card className="bg-[hsl(var(--ethblox-surface))] border-[hsl(var(--ethblox-border))]">
+          <CardContent className="p-6">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 mt-0.5 text-[hsl(var(--ethblox-yellow))]" />
+              <div>
+                <h1 className="text-lg font-semibold text-[hsl(var(--ethblox-text-primary))]">Token #{tokenId} is missing</h1>
+                <p className="text-sm text-[hsl(var(--ethblox-text-secondary))] mt-1">
+                  This token ID does not exist in the selected source ({mode === "onchain" ? "chain" : "app data"}).
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (
@@ -326,6 +403,8 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
                   bricks={previewBricks}
                   geometryHash={previewHash}
                   tokenId={tokenId}
+                  transparentBricks={kindRaw === 0}
+                  showStuds={kindRaw === 0}
                   className="h-full w-full"
                 />
               </div>
@@ -394,17 +473,17 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
           {/* ─── ON-CHAIN VIEW ─── */}
           {(appData || ipfsMetadata) && (
             <CollapsibleSection
-              title="App vs IPFS Compare"
+              title="App vs Canonical Compare"
               icon={<Database className="h-4 w-4 text-[hsl(var(--ethblox-text-tertiary))]" />}
               defaultOpen
             >
               <div className="space-y-2 mt-3 text-xs">
                 <CompareRow label="Name" appValue={appData?.name} ipfsValue={ipfsMetadata?.name} />
-                <CompareRow label="Kind" appValue={appKind} ipfsValue={ipfsKind} />
-                <CompareRow label="Density" appValue={appDensity} ipfsValue={ipfsDensity} />
-                <CompareRow label="Mass" appValue={appMass} ipfsValue={ipfsMass} />
-                <CompareRow label="Geometry Hash" appValue={appGeom} ipfsValue={ipfsGeom} mono />
-                <CompareRow label="Components" appValue={appCompSig || "(none)"} ipfsValue={ipfsCompSig || "(none)"} mono />
+                <CompareRow label="Kind" appValue={appKind} ipfsValue={compareKind} />
+                <CompareRow label="Density" appValue={appDensity} ipfsValue={compareDensity} />
+                <CompareRow label="Mass" appValue={appMass} ipfsValue={compareMass} />
+                <CompareRow label="Geometry Hash" appValue={appGeom} ipfsValue={compareGeom} mono />
+                <CompareRow label="Components" appValue={appCompSig || "(none)"} ipfsValue={canonicalCompSig} mono />
               </div>
             </CollapsibleSection>
           )}
@@ -428,9 +507,9 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
                       </>
                     )}
                     {onchain?.lockedBlox && onchain.lockedBlox !== "0" && (
-                      <TraitCard label="Locked BLOX" value={onchain.lockedBlox} />
+                      <TraitCard label="Locked BLOX" value={Number(ethers.formatUnits(BigInt(onchain.lockedBlox), 18))} />
                     )}
-                    {ipfsTraits.map((t) => (
+                    {compareTraits.map((t) => (
                       <TraitCard key={`${t.label}:${String(t.value)}`} label={t.label} value={t.value} />
                     ))}
                   </div>

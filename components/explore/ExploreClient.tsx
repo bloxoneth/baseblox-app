@@ -163,6 +163,8 @@ function BuildCard({ build }: { build: Build }) {
             bricks={build.bricks}
             geometryHash={build.geometryHash || build.buildHash}
             tokenId={build.tokenId}
+            transparentBricks={build.kind === 0}
+            showStuds={build.kind === 0}
             className="h-full w-full"
           />
           {/* Token ID badge */}
