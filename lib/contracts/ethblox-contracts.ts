@@ -2,7 +2,8 @@ import { ethers } from "ethers"
 import { computeSpecKey } from "../brickSpec"
 
 // Constants
-export const FEE_PER_MINT = ethers.parseEther("0.0001") // 0.0001 ETH mint fee
+export const FEE_PER_MINT = ethers.parseEther("0.001") // 0.001 ETH mint fee (test)
+export const BURN_FEE = ethers.parseEther("0.005") // 0.005 ETH burn fee
 export const BLOX_DECIMALS = 18n
 export const MINT_GAS_LIMIT = 700_000n // 600-800k recommended for BuildNFT.mint
 export const MINT_GAS_LIMIT_FORCE = 800_000n // upper bound when force-sending
@@ -13,7 +14,7 @@ export const BASE_METADATA_URI =
   process.env.NEXT_PUBLIC_BASE_METADATA_URI ?? `ipfs://${BASE_METADATA_CID}`
 export const BASE_METADATA_GATEWAY =
   process.env.NEXT_PUBLIC_BASE_METADATA_GATEWAY ??
-  `https://gateway.lighthouse.storage/ipfs/${BASE_METADATA_CID}`
+  `https://gateway.pinata.cloud/ipfs/${BASE_METADATA_CID}`
 export const tokenMetadataURI = (tokenId: string | number) =>
   `${BASE_METADATA_URI}/${tokenId}.json`
 export const tokenMetadataGatewayURL = (tokenId: string | number) =>
@@ -25,7 +26,7 @@ export const IMAGES_CID =
   "bafybeibnk4kq7mesrs7wtwi2ypwlnxhazoqkwgoycol55n64tqseox2q2a"
 export const IMAGES_GATEWAY =
   process.env.NEXT_PUBLIC_IMAGES_GATEWAY ??
-  `https://gateway.lighthouse.storage/ipfs/${IMAGES_CID}`
+  `https://gateway.pinata.cloud/ipfs/${IMAGES_CID}`
 export const tokenImageURI = (tokenId: string | number) =>
   `ipfs://${IMAGES_CID}/${tokenId}.png`
 export const tokenImageGatewayURL = (tokenId: string | number) =>
@@ -34,7 +35,7 @@ export const tokenImageGatewayURL = (tokenId: string | number) =>
 // Resolve any ipfs:// URI to a gateway URL
 export const resolveIPFS = (uri: string) => {
   const gateway =
-    process.env.NEXT_PUBLIC_IPFS_GATEWAY ?? "https://gateway.lighthouse.storage/ipfs/"
+    process.env.NEXT_PUBLIC_IPFS_GATEWAY ?? "https://gateway.pinata.cloud/ipfs/"
   return uri.replace("ipfs://", gateway)
 }
 
@@ -103,6 +104,7 @@ export const BUILD_NFT_ABI = [
   "function blox() view returns (address)",
   "function bloxToken() view returns (address)",
   "function FEE_PER_MINT() view returns (uint256)",
+  "function BURN_FEE() view returns (uint256)",
   "function mintFee() view returns (uint256)",
   "function owner() view returns (address)",
   // ERC721 standard
@@ -112,7 +114,7 @@ export const BUILD_NFT_ABI = [
   "function safeOwnerOf(uint256 tokenId) view returns (address)",
   "function tokenURI(uint256 tokenId) view returns (string)",
   // Burn (only for builds, not bricks)
-  "function burn(uint256 tokenId)",
+  "function burn(uint256 tokenId) payable",
   // Events
   "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)",
 ]
@@ -120,8 +122,10 @@ export const BUILD_NFT_ABI = [
 // LicenseRegistry ABI - maps component tokenIds to license IDs
 export const LICENSE_REGISTRY_ABI = [
   "function licenseIdForBuild(uint256 buildId) view returns (uint256)",
+  "function buildIdForLicense(uint256 licenseId) view returns (uint256)",
   "function quote(uint256 buildId, uint256 qty) view returns (uint256)",
-  "function mintLicenseForBuild(uint256 buildId, uint256 qty) payable",
+  "function pricingForLicense(uint256 licenseId) view returns (uint256 startPrice, uint256 step, uint256 maxSupply, uint256 maxPrice)",
+  "function mintLicenseForBuild(uint256 buildId, uint256 qty)",
   "function registerBuild(uint256 buildId, bytes32 expectedGeometryHash)",
   "function getLicenseId(uint256 componentTokenId) view returns (uint256)",
   "function getLicenseIds(uint256[] calldata componentTokenIds) view returns (uint256[])",
@@ -136,8 +140,8 @@ export const LICENSE_NFT_ABI = [
   "function setApprovalForAll(address operator, bool approved)",
   "function isApprovedForAll(address account, address operator) view returns (bool)",
   // License-specific
-  "function licensePrice(uint256 id) view returns (uint256)",
-  "function purchaseLicense(uint256 id) payable",
+  "function totalSupply(uint256 id) view returns (uint256)",
+  "function maxSupply(uint256 id) view returns (uint256)",
 ]
 
 // Distributor ABI - handles rewards distribution
@@ -524,7 +528,7 @@ export async function burnBuildNFT(
   const signer = await provider.getSigner()
   const contract = new ethers.Contract(CONTRACTS.BUILD_NFT, BUILD_NFT_ABI, signer)
   // Convert tokenId string to BigInt for contract call
-  return await contract.burn(BigInt(tokenId))
+  return await contract.burn(BigInt(tokenId), { value: BURN_FEE })
 }
 
 // ========== NEW: Brick Minting ==========
@@ -684,7 +688,14 @@ export async function mintLicenseForBuild(
   const signer = await provider.getSigner()
   const registry = new ethers.Contract(CONTRACTS.LICENSE_REGISTRY, LICENSE_REGISTRY_ABI, signer)
   const price = await registry.quote(buildId, qty)
-  return await registry.mintLicenseForBuild(buildId, qty, { value: price })
+  const owner = await signer.getAddress()
+  const blox = new ethers.Contract(CONTRACTS.MOCK_BLOX, MOCK_BLOX_ABI, signer)
+  const allowance = await blox.allowance(owner, CONTRACTS.LICENSE_REGISTRY)
+  if (allowance < price) {
+    const approveTx = await blox.approve(CONTRACTS.LICENSE_REGISTRY, ethers.MaxUint256)
+    await approveTx.wait()
+  }
+  return await registry.mintLicenseForBuild(buildId, qty)
 }
 
 export interface LicensePurchaseResult {

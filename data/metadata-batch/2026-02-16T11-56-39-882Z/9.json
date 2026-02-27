@@ -1,0 +1,49 @@
+{
+  "name": "2x4-D1",
+  "description": "ETHBLOX Brick - 4x2 density 1",
+  "image": "ipfs://bafybeibnk4kq7mesrs7wtwi2ypwlnxhazoqkwgoycol55n64tqseox2q2a/9.png",
+  "animation_url": "https://ethblox.art/viewer/9",
+  "external_url": "https://ethblox.art/explore/9",
+  "attributes": [
+    {
+      "trait_type": "kind",
+      "value": "Brick"
+    },
+    {
+      "trait_type": "kindId",
+      "value": 0
+    },
+    {
+      "trait_type": "mass",
+      "value": 8
+    },
+    {
+      "trait_type": "density",
+      "value": 1
+    },
+    {
+      "trait_type": "width",
+      "value": 4
+    },
+    {
+      "trait_type": "depth",
+      "value": 2
+    },
+    {
+      "trait_type": "geometryHash",
+      "value": "0x5d339788fedaa246efe19a29419995f196fb07c0c4ece9e21102f0d3cb9d5bf2"
+    },
+    {
+      "trait_type": "bw_score",
+      "value": 2.41
+    },
+    {
+      "trait_type": "componentBuildIds",
+      "value": "1"
+    },
+    {
+      "trait_type": "componentCounts",
+      "value": "8"
+    }
+  ]
+}

@@ -24,26 +24,14 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
-  title: "ETHBLOX - On-Chain Creative Protocol",
+  title: "BASEBLOX - On-Chain Creative Protocol",
   description:
     "Programmable matter for Ethereum's next cultural era. 3D on-chain art, programmable matter, AI-native agents & a circular economy.",
   generator: "v0.app",
   icons: {
-    icon: [
-      {
-        url: "/icon-light-32x32.png",
-        media: "(prefers-color-scheme: light)",
-      },
-      {
-        url: "/icon-dark-32x32.png",
-        media: "(prefers-color-scheme: dark)",
-      },
-      {
-        url: "/icon.svg",
-        type: "image/svg+xml",
-      },
-    ],
-    apple: "/apple-icon.png",
+    icon: [{ url: "/baseblox-logo.svg", type: "image/svg+xml" }],
+    shortcut: "/baseblox-logo.svg",
+    apple: "/baseblox-logo.svg",
   },
 }
 

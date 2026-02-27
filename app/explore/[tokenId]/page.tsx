@@ -4,8 +4,8 @@ import { TokenDetailClient } from "@/components/explore/TokenDetailClient"
 export async function generateMetadata({ params }: { params: Promise<{ tokenId: string }> }) {
   const { tokenId } = await params
   return {
-    title: `Build #${tokenId} | ETHBLOX`,
-    description: `On-chain details for ETHBLOX BuildNFT token #${tokenId}`,
+    title: `Build #${tokenId} | BASEBLOX`,
+    description: `On-chain details for BASEBLOX BuildNFT token #${tokenId}`,
   }
 }
 

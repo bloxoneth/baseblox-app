@@ -61,7 +61,7 @@ async function backfill() {
         }
         await redis.set(rk(`build:${buildId}`), {
           id: buildId,
-          name: `ETHBLOX #${tokenId}`,
+          name: `BASEBLOX #${tokenId}`,
           creator: owner.toLowerCase(),
           bricks: [],
           tokenId,

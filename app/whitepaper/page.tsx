@@ -3,11 +3,11 @@ import { SiteFooter } from "@/components/site-footer"
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "Whitepaper - ETHBLOX | A Cultural, Cryptoeconomic, and Memetic Architecture",
+  title: "Whitepaper - BASEBLOX | A Cultural, Cryptoeconomic, and Memetic Architecture",
   description:
-    "ETHBLOX is an experiment in programmable matter and programmable culture: a protocol that reduces creative expression to three primitives — mass, form, and composition — and observes how social meaning, economic value, and structural complexity emerge over time.",
+    "BASEBLOX is an experiment in programmable matter and programmable culture: a protocol that reduces creative expression to three primitives — mass, form, and composition — and observes how social meaning, economic value, and structural complexity emerge over time.",
   keywords: [
-    "ETHBLOX",
+    "BASEBLOX",
     "whitepaper",
     "programmable matter",
     "cryptoeconomics",
@@ -20,7 +20,7 @@ export const metadata: Metadata = {
     "Ethereum",
   ],
   openGraph: {
-    title: "ETHBLOX Whitepaper - A Cultural, Cryptoeconomic, and Memetic Architecture",
+    title: "BASEBLOX Whitepaper - A Cultural, Cryptoeconomic, and Memetic Architecture",
     description:
       "An experiment in programmable matter and culture. Three primitives — mass, form, and composition — generate emergent social meaning and economic value.",
     type: "article",
@@ -37,7 +37,7 @@ export default function WhitepaperPage() {
           {/* Header */}
           <div className="space-y-6 pb-8 border-b border-[hsl(var(--ethblox-border))]">
             <h1 className="text-5xl md:text-6xl font-heading font-bold tracking-tight text-[hsl(var(--ethblox-accent-yellow))]">
-              ETHBLOX
+              BASEBLOX
             </h1>
             <h2 className="text-2xl md:text-3xl font-heading font-semibold text-[hsl(var(--ethblox-text-primary))]">
               A Cultural, Cryptoeconomic, and Memetic Architecture for Programmable Matter
@@ -56,7 +56,7 @@ export default function WhitepaperPage() {
             <h3 className="text-2xl font-heading font-bold text-[hsl(var(--ethblox-accent-cyan))]">ABSTRACT</h3>
             <div className="prose prose-invert max-w-none">
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">
-                ETHBLOX is an experiment in programmable matter and programmable culture: a protocol that reduces
+                BASEBLOX is an experiment in programmable matter and programmable culture: a protocol that reduces
                 creative expression to three primitives — mass, form, and composition — and observes how social meaning,
                 economic value, and structural complexity emerge over time in a cryptographically constrained
                 environment.
@@ -66,13 +66,13 @@ export default function WhitepaperPage() {
                 shared symbolic primitives, all operating within the public epistemology of blockchain systems.
               </p>
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">
-                Rather than simulating a world, ETHBLOX constructs a substrate on which human creativity, coordination,
+                Rather than simulating a world, BASEBLOX constructs a substrate on which human creativity, coordination,
                 and memetic transmission can be studied. It sits at the intersection of cryptoeconomics, generative art,
                 game theory, semiotics, and urban-cultural anthropology, proposing an ontology minimal enough to be
                 legible yet rich enough to generate an evolving cultural landscape.
               </p>
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">
-                This paper outlines the scientific, economic, and cultural foundations of ETHBLOX; its theoretical
+                This paper outlines the scientific, economic, and cultural foundations of BASEBLOX; its theoretical
                 precedents; and the rationale behind its design as a medium for emergent collective construction.
               </p>
             </div>
@@ -98,10 +98,10 @@ export default function WhitepaperPage() {
                 all follow quasi-biological patterns, but with information instead of DNA.
               </p>
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed font-semibold">
-                ETHBLOX emerges within this intellectual lineage.
+                BASEBLOX emerges within this intellectual lineage.
               </p>
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">
-                Rather than treating memes as incidental phenomena in digital culture, ETHBLOX treats them as
+                Rather than treating memes as incidental phenomena in digital culture, BASEBLOX treats them as
                 first-class citizens of system design. <strong>BRICKS</strong> — the protocol's mould primitives — act
                 as "genetic substrates" for cultural expression. <strong>BUILDS</strong> act as phenotypic outputs.{" "}
                 <strong>BLOX</strong>, the conserved matter, introduces thermodynamic friction that forces creative
@@ -136,7 +136,7 @@ export default function WhitepaperPage() {
               2. THEORETICAL CONTEXT
             </h3>
             <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">
-              ETHBLOX stands at the confluence of five research domains:
+              BASEBLOX stands at the confluence of five research domains:
             </p>
 
             {/* 2.1 */}
@@ -151,7 +151,7 @@ export default function WhitepaperPage() {
                 <li>• and mechanisms that resist exploitative equilibria.</li>
               </ul>
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">
-                The ETHBLOX economy is designed with no inflationary emissions, relying instead on usage-driven revenue
+                The BASEBLOX economy is designed with no inflationary emissions, relying instead on usage-driven revenue
                 and a Liquidity Engine that transforms creative action into market depth.
               </p>
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed text-sm">
@@ -167,7 +167,7 @@ export default function WhitepaperPage() {
                 2.2 Generative Systems & Complexity Science
               </h4>
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">
-                ETHBLOX is a descendant of generative art lineage:
+                BASEBLOX is a descendant of generative art lineage:
               </p>
               <ul className="space-y-1 text-[hsl(var(--ethblox-text-secondary))] pl-6">
                 <li>• Autoglyphs (Snowfro)</li>
@@ -176,7 +176,7 @@ export default function WhitepaperPage() {
               </ul>
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">
                 These projects demonstrate that simple rule systems can generate complex, high-dimensional cultural
-                space. ETHBLOX adopts an even stricter ontology — a trinity of matter, mould, and structure — to
+                space. BASEBLOX adopts an even stricter ontology — a trinity of matter, mould, and structure — to
                 minimize constraints on emergent complexity.
               </p>
             </div>
@@ -188,7 +188,7 @@ export default function WhitepaperPage() {
               </h4>
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">
                 Memes behave like replicators: units of culture that spread through transmission, resonance, and
-                mutation. In ETHBLOX:
+                mutation. In BASEBLOX:
               </p>
               <ul className="space-y-1 text-[hsl(var(--ethblox-text-secondary))] pl-6">
                 <li>• BRICKS are memetic primitives</li>
@@ -197,7 +197,7 @@ export default function WhitepaperPage() {
               </ul>
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed text-sm">
                 This connects to: Dawkins' <em>Selfish Gene</em>, Mauss on gift economies, Lévi-Strauss on symbolic
-                systems, Latour on actor-network theory. ETHBLOX frames digital artifacts not as commodities but as
+                systems, Latour on actor-network theory. BASEBLOX frames digital artifacts not as commodities but as
                 social actors, participating in cultural evolution.
               </p>
             </div>
@@ -208,7 +208,7 @@ export default function WhitepaperPage() {
                 2.4 Game Theory & Mechanism Design
               </h4>
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">
-                Game theory in ETHBLOX is not adversarial; it is architectural. The system creates:
+                Game theory in BASEBLOX is not adversarial; it is architectural. The system creates:
               </p>
               <ul className="space-y-1 text-[hsl(var(--ethblox-text-secondary))] pl-6">
                 <li>• anti-coordination games (choice of moulds, design space)</li>
@@ -228,7 +228,7 @@ export default function WhitepaperPage() {
                 2.5 Urbanism & Spatial Economics
               </h4>
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">
-                If the optional AIR ↔ MATTER extension is activated, ETHBLOX becomes a laboratory for studying spatial
+                If the optional AIR ↔ MATTER extension is activated, BASEBLOX becomes a laboratory for studying spatial
                 scarcity:
               </p>
               <div className="p-4 rounded bg-[hsl(var(--ethblox-bg))] border border-[hsl(var(--ethblox-accent-cyan))]/30">
@@ -249,13 +249,13 @@ export default function WhitepaperPage() {
             </div>
           </section>
 
-          {/* 3. The ETHBLOX Ontology */}
+          {/* 3. The BASEBLOX Ontology */}
           <section className="space-y-6 p-6 bg-[hsl(var(--ethblox-surface))] border border-[hsl(var(--ethblox-border))] rounded-lg">
             <h3 className="text-2xl font-heading font-bold text-[hsl(var(--ethblox-accent-cyan))]">
-              3. THE ETHBLOX ONTOLOGY
+              3. THE BASEBLOX ONTOLOGY
             </h3>
             <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">
-              The power of ETHBLOX is its refusal to introduce superfluous primitives.
+              The power of BASEBLOX is its refusal to introduce superfluous primitives.
             </p>
             <div className="space-y-3">
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">It has no:</p>
@@ -288,7 +288,7 @@ export default function WhitepaperPage() {
                 3.1 BLOX — Mass as Constraint
               </h4>
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">
-                In traditional game worlds, resources are abundant and meaningless. In ETHBLOX, mass is the ultimate
+                In traditional game worlds, resources are abundant and meaningless. In BASEBLOX, mass is the ultimate
                 constraint.
               </p>
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">This forces:</p>
@@ -314,7 +314,7 @@ export default function WhitepaperPage() {
               </p>
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">
                 A BRICK becomes "iconic" not because of initial rarity but because builders adopt it, remix it, and
-                crystallize it into the collective visual language of ETHBLOX.
+                crystallize it into the collective visual language of BASEBLOX.
               </p>
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed italic">
                 This is memetics applied to architectural form.
@@ -373,7 +373,7 @@ export default function WhitepaperPage() {
               5. ETH FLOW & THE CREATIVE ECONOMY
             </h3>
             <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">
-              ETHBLOX's economy is deceptively simple:
+              BASEBLOX's economy is deceptively simple:
             </p>
             <div className="grid md:grid-cols-3 gap-4">
               <div className="p-4 rounded bg-[hsl(var(--ethblox-bg))] border border-[hsl(var(--ethblox-border))] text-center space-y-2">
@@ -469,11 +469,11 @@ export default function WhitepaperPage() {
             </p>
             <div className="space-y-4">
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">
-                ETHBLOX is not a game in the traditional sense. It is a platform for cultural computation — a way to
+                BASEBLOX is not a game in the traditional sense. It is a platform for cultural computation — a way to
                 observe how humans create meaning when given scarce matter, shared primitives, and visible lineage.
               </p>
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">
-                In an age of digital abundance, ETHBLOX reintroduces friction, scarcity, and choice — the ingredients
+                In an age of digital abundance, BASEBLOX reintroduces friction, scarcity, and choice — the ingredients
                 that make culture matter.
               </p>
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed font-semibold text-lg">

@@ -60,7 +60,7 @@ function buildMetadata(build, tokenId, appBaseUrl, imageBaseUri) {
       ? String(build.name).trim()
       : kind === 0
         ? `Brick ${Math.min(w, d)}x${Math.max(w, d)} D${density}`
-        : `ETHBLOX ${kindLabel} #${tokenId}`;
+        : `BASEBLOX ${kindLabel} #${tokenId}`;
 
   const attributes = [
     jsonAttr("kind", kindLabel),
@@ -93,7 +93,7 @@ function buildMetadata(build, tokenId, appBaseUrl, imageBaseUri) {
 
   return {
     name,
-    description: `ETHBLOX ${kindLabel} - ${w}x${d} density ${density}`,
+    description: `BASEBLOX ${kindLabel} - ${w}x${d} density ${density}`,
     image: `${imageBaseUri}/${tokenId}.png`,
     animation_url: `${appBaseUrl}/viewer/${tokenId}`,
     external_url: `${appBaseUrl}/explore/${tokenId}`,
@@ -101,7 +101,17 @@ function buildMetadata(build, tokenId, appBaseUrl, imageBaseUri) {
   };
 }
 
-function parseLighthouseAddResponse(text) {
+function parseIpfsAddResponse(text) {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const obj = JSON.parse(trimmed);
+      const cid = obj.IpfsHash || obj.Hash || null;
+      return { folderCid: cid, raw: obj };
+    } catch {
+      // fall through to NDJSON parsing
+    }
+  }
   const lines = text
     .split(/\r?\n/)
     .map((l) => l.trim())
@@ -115,8 +125,40 @@ function parseLighthouseAddResponse(text) {
     }
   }
   const finalRow = rows[rows.length - 1] || null;
-  const folderCid = finalRow?.Hash || null;
-  return { rows, folderCid };
+  const folderCid = finalRow?.IpfsHash || finalRow?.Hash || null;
+  return { rows, folderCid, raw: finalRow };
+}
+
+async function postWithRetry(url, makeRequest, options = {}) {
+  const retries = Number(options.retries ?? 4);
+  const timeoutMs = Number(options.timeoutMs ?? 25000);
+  let lastErr = null;
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const res = await makeRequest({ url, timeoutMs, attempt });
+      if (res.ok) return res;
+      const errText = await res.text();
+      lastErr = new Error(`HTTP ${res.status}: ${errText}`);
+    } catch (err) {
+      lastErr = err;
+    }
+    if (attempt < retries) {
+      const backoffMs = 700 * attempt;
+      await new Promise((r) => setTimeout(r, backoffMs));
+    }
+  }
+  throw lastErr || new Error("request failed");
+}
+
+function makeMetadataFormData(outDir, fileNames) {
+  const formData = new FormData();
+  for (const fileName of fileNames) {
+    const fullPath = path.join(outDir, fileName);
+    const body = fs.readFileSync(fullPath);
+    formData.append("file", new Blob([body], { type: "application/json" }), fileName);
+  }
+  return formData;
 }
 
 async function main() {
@@ -131,14 +173,22 @@ async function main() {
   const buildNft = process.env.NEXT_PUBLIC_BUILDNFT_ADDRESS;
   const rpcUrl = process.env.BASE_SEPOLIA_RPC_URL || process.env.NEXT_PUBLIC_RPC_URL;
   const ownerPk = process.env.PRIVATE_KEY || process.env.BASE_TOKEN_URI_OWNER_KEY;
-  const lighthouseKey = process.env.LIGHTHOUSE_API_KEY;
+  const ipfsApiToken = process.env.PINATA_JWT || process.env.LIGHTHOUSE_API_KEY;
+  const ipfsUploadUrl =
+    process.env.IPFS_UPLOAD_URL ||
+    process.env.LIGHTHOUSE_UPLOAD_URL ||
+    "https://api.pinata.cloud/pinning/pinFileToIPFS";
+  const pinataGatewayBase =
+    process.env.PINATA_GATEWAY_BASE || "https://gateway.pinata.cloud/ipfs";
+  const ipfsTimeoutMs = Number(process.env.IPFS_UPLOAD_TIMEOUT_MS || "30000");
+  const ipfsRetries = Number(process.env.IPFS_UPLOAD_RETRIES || "4");
   const kvUrl = process.env.KV_REST_API_URL;
   const kvToken = process.env.KV_REST_API_TOKEN;
 
   if (!kvUrl || !kvToken) throw new Error("Missing KV_REST_API_URL / KV_REST_API_TOKEN");
   if (!buildNft) throw new Error("Missing NEXT_PUBLIC_BUILDNFT_ADDRESS");
   if (!rpcUrl) throw new Error("Missing BASE_SEPOLIA_RPC_URL / NEXT_PUBLIC_RPC_URL");
-  if (!lighthouseKey && !args.dryRun) throw new Error("Missing LIGHTHOUSE_API_KEY");
+  if (!ipfsApiToken && !args.dryRun) throw new Error("Missing PINATA_JWT (or LIGHTHOUSE_API_KEY)");
 
   const redis = new Redis({ url: kvUrl, token: kvToken });
   const keyStyleA = {
@@ -190,29 +240,32 @@ async function main() {
     return;
   }
 
-  const formData = new FormData();
   const fileNames = fs.readdirSync(outDir).filter((f) => f.endsWith(".json")).sort((a, b) => Number(a.split(".")[0]) - Number(b.split(".")[0]));
-  for (const fileName of fileNames) {
-    const fullPath = path.join(outDir, fileName);
-    const body = fs.readFileSync(fullPath);
-    formData.append("file", new Blob([body], { type: "application/json" }), fileName);
-  }
-
-  const uploadRes = await fetch("https://node.lighthouse.storage/api/v0/add?wrap-with-directory=true", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${lighthouseKey}` },
-    body: formData,
-  });
-  if (!uploadRes.ok) {
-    const errText = await uploadRes.text();
-    throw new Error(`Lighthouse upload failed: ${uploadRes.status} ${errText}`);
-  }
+  const uploadRes = await postWithRetry(
+    ipfsUploadUrl,
+    async ({ timeoutMs }) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(ipfsUploadUrl, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${ipfsApiToken}` },
+          body: makeMetadataFormData(outDir, fileNames),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+    { retries: ipfsRetries, timeoutMs: ipfsTimeoutMs },
+  );
   const rawText = await uploadRes.text();
-  const parsed = parseLighthouseAddResponse(rawText);
-  if (!parsed.folderCid) throw new Error(`Could not parse folder CID from Lighthouse response: ${rawText}`);
+  const parsed = parseIpfsAddResponse(rawText);
+  if (!parsed.folderCid) throw new Error(`Could not parse folder CID from IPFS response: ${rawText}`);
   const folderCid = parsed.folderCid;
   const baseUri = `ipfs://${folderCid}`;
   console.log(`Uploaded metadata folder CID: ${folderCid}`);
+  console.log(`Gateway URL: ${pinataGatewayBase}/${folderCid}`);
   console.log(`Base URI candidate: ${baseUri}`);
 
   if (!args.setBase) {
@@ -238,4 +291,3 @@ main().catch((err) => {
   console.error(`publish-metadata-batch failed: ${err?.message || err}`);
   process.exit(1);
 });
-

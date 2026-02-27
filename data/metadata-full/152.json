@@ -1,0 +1,41 @@
+{
+  "name": "3x3x2-D1",
+  "description": "ETHBLOX Build - 3x3 density 1",
+  "image": "ipfs://bafybeibnk4kq7mesrs7wtwi2ypwlnxhazoqkwgoycol55n64tqseox2q2a/152.png",
+  "animation_url": "https://ethblox-app.vercel.app/viewer/152",
+  "external_url": "https://ethblox-app.vercel.app/explore/152",
+  "attributes": [
+    {
+      "trait_type": "kind",
+      "value": "Build"
+    },
+    {
+      "trait_type": "kindId",
+      "value": 1
+    },
+    {
+      "trait_type": "mass",
+      "value": 18
+    },
+    {
+      "trait_type": "density",
+      "value": 1
+    },
+    {
+      "trait_type": "width",
+      "value": 3
+    },
+    {
+      "trait_type": "depth",
+      "value": 3
+    },
+    {
+      "trait_type": "geometryHash",
+      "value": "0x2e1a49f7178a09bbf0d2fe13792afb6e003ff1193110245de88dc3882c08f875"
+    },
+    {
+      "trait_type": "bw_score",
+      "value": 3.23
+    }
+  ]
+}

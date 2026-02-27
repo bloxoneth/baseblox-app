@@ -108,8 +108,8 @@ export async function GET(
   const fallbackGateways: string[] = []
   if (tokenURI) {
     if (tokenURI.startsWith("ipfs://")) {
-      fallbackGateways.push(ipfsToGateway(tokenURI, "https://gateway.lighthouse.storage/ipfs"))
       fallbackGateways.push(ipfsToGateway(tokenURI, "https://gateway.pinata.cloud/ipfs"))
+      fallbackGateways.push(ipfsToGateway(tokenURI, "https://gateway.lighthouse.storage/ipfs"))
       fallbackGateways.push(ipfsToGateway(tokenURI, "https://dweb.link/ipfs"))
       fallbackGateways.push(ipfsToGateway(tokenURI, "https://ipfs.io/ipfs"))
     } else if (tokenURI.startsWith("http://") || tokenURI.startsWith("https://")) {
@@ -117,6 +117,7 @@ export async function GET(
     }
   }
   // Legacy fallback for old CIDs/env defaults.
+  fallbackGateways.push(`https://gateway.pinata.cloud/ipfs/${BASE_METADATA_CID}/${id}.json`)
   fallbackGateways.push(`https://gateway.lighthouse.storage/ipfs/${BASE_METADATA_CID}/${id}.json`)
   fallbackGateways.push(`https://dweb.link/ipfs/${BASE_METADATA_CID}/${id}.json`)
   fallbackGateways.push(`https://ipfs.io/ipfs/${BASE_METADATA_CID}/${id}.json`)

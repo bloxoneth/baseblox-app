@@ -135,7 +135,7 @@ export function MintBuildModal({
   const uniqueColors = new Set(bricks.map((b) => b.color)).size
   const bw = calculateBW(totalBloxMass, uniqueColors)
   const estimatedBloxCost = totalBloxMass // 1:1 ratio
-  const estimatedLicenseFeeEth = Number(ethers.formatEther(FEE_PER_MINT)) // mint fee
+  const estimatedMintFeeEth = Number(ethers.formatEther(FEE_PER_MINT))
   const estimatedApy = (totalBloxMass * 0.05).toFixed(2)
 
   useEffect(() => {
@@ -683,14 +683,14 @@ export function MintBuildModal({
               </div>
 
               <div className="flex items-center justify-between">
-                <span className="text-gray-300">Estimated License Fee:</span>
-                <span className="text-white font-medium">{estimatedLicenseFeeEth.toFixed(4)} ETH</span>
+                <span className="text-gray-300">Mint Fee:</span>
+                <span className="text-white font-medium">{estimatedMintFeeEth.toFixed(4)} ETH</span>
               </div>
 
               <div className="flex items-center justify-between border-t border-gray-700 pt-3">
                 <span className="text-white font-bold">Total Cost:</span>
                 <span className="text-white font-bold">
-                  {estimatedBloxCost} BLOX + {estimatedLicenseFeeEth.toFixed(4)} ETH
+                  {estimatedBloxCost} BLOX + {estimatedMintFeeEth.toFixed(4)} ETH (+ license buys in BLOX if needed)
                 </span>
               </div>
             </div>

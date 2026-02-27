@@ -8,16 +8,75 @@ import type { Build } from "@/lib/types"
 import { tokenImageURI } from "@/lib/contracts/ethblox-contracts"
 import { CONTRACTS, RPC_URL } from "@/lib/contracts/ethblox-contracts"
 
-const LIGHTHOUSE_API_KEY = process.env.LIGHTHOUSE_API_KEY
+const IPFS_API_TOKEN = process.env.PINATA_JWT || process.env.LIGHTHOUSE_API_KEY
+const IPFS_UPLOAD_URL =
+  process.env.IPFS_UPLOAD_URL ||
+  process.env.LIGHTHOUSE_UPLOAD_URL ||
+  "https://api.pinata.cloud/pinning/pinFileToIPFS"
+const IPFS_GATEWAY_BASE = process.env.PINATA_GATEWAY_BASE || "https://gateway.pinata.cloud/ipfs"
+const IPFS_UPLOAD_TIMEOUT_MS = Number(process.env.IPFS_UPLOAD_TIMEOUT_MS || "25000")
+const IPFS_UPLOAD_RETRIES = Number(process.env.IPFS_UPLOAD_RETRIES || "4")
 const AUTO_IPFS_PUSH_ON_MINT = process.env.AUTO_IPFS_PUSH_ON_MINT === "1"
 const AUTO_SET_BASE_TOKEN_URI_ON_MINT = process.env.AUTO_SET_BASE_TOKEN_URI_ON_MINT === "1"
 const BASE_TOKEN_URI_TARGET = process.env.BASE_TOKEN_URI_TARGET || process.env.NEXT_PUBLIC_BASE_METADATA_URI || ""
 const BASE_TOKEN_URI_OWNER_KEY = process.env.BASE_TOKEN_URI_OWNER_KEY || process.env.PRIVATE_KEY || ""
 
 const CHAIN_READ_ABI = [
+  "function nextTokenId() view returns (uint256)",
+  "function exists(uint256 tokenId) view returns (bool)",
   "function kindOf(uint256 tokenId) view returns (uint8)",
   "function brickSpecOf(uint256 tokenId) view returns (uint8 width, uint8 depth, uint16 density)",
 ]
+
+async function findBaseBrickTokenOnChain(targetDensity: number): Promise<string | null> {
+  const provider = new ethers.JsonRpcProvider(RPC_URL)
+  const contract = new ethers.Contract(CONTRACTS.BUILD_NFT, CHAIN_READ_ABI, provider)
+  const nextTokenId = Number(await contract.nextTokenId())
+  for (let tokenId = 1; tokenId < nextTokenId; tokenId++) {
+    try {
+      const exists = Boolean(await contract.exists(BigInt(tokenId)))
+      if (!exists) continue
+      const kind = Number(await contract.kindOf(BigInt(tokenId)))
+      if (kind !== 0) continue
+      const [w, d, den] = await contract.brickSpecOf(BigInt(tokenId))
+      if (Number(w) === 1 && Number(d) === 1 && Number(den) === Number(targetDensity)) {
+        return String(tokenId)
+      }
+    } catch {
+      // Ignore gaps/reverts and continue scan.
+    }
+  }
+  return null
+}
+
+async function uploadToIpfsWithRetry(formDataFactory: () => FormData) {
+  let lastError: Error | null = null
+  for (let attempt = 1; attempt <= IPFS_UPLOAD_RETRIES; attempt++) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), IPFS_UPLOAD_TIMEOUT_MS)
+    try {
+      const res = await fetch(IPFS_UPLOAD_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${IPFS_API_TOKEN}`,
+        },
+        body: formDataFactory(),
+        signal: controller.signal,
+      })
+      clearTimeout(timer)
+      if (res.ok) return res
+      const errText = await res.text()
+      lastError = new Error(`IPFS upload failed: ${res.status} ${errText}`)
+    } catch (err: any) {
+      clearTimeout(timer)
+      lastError = err instanceof Error ? err : new Error(String(err))
+    }
+    if (attempt < IPFS_UPLOAD_RETRIES) {
+      await new Promise((r) => setTimeout(r, 700 * attempt))
+    }
+  }
+  throw lastError || new Error("IPFS upload failed")
+}
 
 // POST /api/builds/mint - Save full build data + mint info to Redis
 export async function POST(request: NextRequest) {
@@ -99,6 +158,16 @@ export async function POST(request: NextRequest) {
             }
           } catch {
             // Keep validation path below for error reporting.
+          }
+        }
+
+        // Final fallback: scan on-chain minted tokens for the canonical 1x1 at this density,
+        // then heal Redis so subsequent requests are fast.
+        if (!baseTokenId) {
+          const discoveredBaseTokenId = await findBaseBrickTokenOnChain(Number(density))
+          if (discoveredBaseTokenId) {
+            baseTokenId = discoveredBaseTokenId
+            await redis.set(rk(`brick:spec:${baseBrickKey}`), String(baseTokenId))
           }
         }
 
@@ -240,31 +309,26 @@ export async function POST(request: NextRequest) {
     await redis.sadd(rk("minted_tokens"), tokenId)
 
     let ipfs: { cid: string; gatewayUrl: string } | null = null
-    if (AUTO_IPFS_PUSH_ON_MINT && LIGHTHOUSE_API_KEY) {
+    if (AUTO_IPFS_PUSH_ON_MINT && IPFS_API_TOKEN) {
       try {
         const metadata = buildMetadataFromBuild(mintedBuild)
         const metadataJson = JSON.stringify(metadata)
         const fileName = `${tokenId}.json`
 
-        const formData = new FormData()
-        const blob = new Blob([metadataJson], { type: "application/json" })
-        formData.append("file", blob, fileName)
-
-        const uploadRes = await fetch("https://node.lighthouse.storage/api/v0/add", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${LIGHTHOUSE_API_KEY}`,
-          },
-          body: formData,
+        const uploadRes = await uploadToIpfsWithRetry(() => {
+          const formData = new FormData()
+          const blob = new Blob([metadataJson], { type: "application/json" })
+          formData.append("file", blob, fileName)
+          return formData
         })
 
         if (uploadRes.ok) {
           const uploadData = await uploadRes.json()
-          const cid = uploadData.Hash
+          const cid = uploadData.IpfsHash || uploadData.Hash
           if (cid) {
             ipfs = {
               cid,
-              gatewayUrl: `https://gateway.lighthouse.storage/ipfs/${cid}`,
+              gatewayUrl: `${IPFS_GATEWAY_BASE}/${cid}`,
             }
           }
         } else {
@@ -381,7 +445,7 @@ function buildMetadataFromBuild(build: Build) {
       ? String(build.name).trim()
       : kind === 0
         ? `Brick ${Math.min(w, d)}x${Math.max(w, d)} D${density}`
-        : `ETHBLOX ${kindLabel} #${tokenId}`
+        : `BASEBLOX ${kindLabel} #${tokenId}`
 
   const attributes: { trait_type: string; value: string | number }[] = [
     { trait_type: "kind", value: kindLabel },
@@ -413,7 +477,7 @@ function buildMetadataFromBuild(build: Build) {
 
   return {
     name: normalizedName,
-    description: `ETHBLOX ${kindLabel} - ${w}x${d} density ${density}`,
+    description: `BASEBLOX ${kindLabel} - ${w}x${d} density ${density}`,
     image: tokenImageURI(tokenId),
     animation_url: `${appBaseUrl}/viewer/${tokenId}`,
     external_url: `${appBaseUrl}/explore/${tokenId}`,

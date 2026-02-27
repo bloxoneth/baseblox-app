@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
     const mass = bricks.length
     const uniqueColors = new Set(bricks.map((b: any) => b.color)).size
 
-    // Calculate BW score using ETHBLOX formula: BW = log(1 + mass) × log(2 + colors)
+    // Calculate BW score using BASEBLOX formula: BW = log(1 + mass) × log(2 + colors)
     const bw_score = Math.log(1 + mass) * Math.log(2 + uniqueColors)
 
     const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`

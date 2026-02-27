@@ -77,18 +77,18 @@ export function SiteFooter() {
               <div className="w-8 h-8 relative">
                 <Image
                   src="/yellow-geometric-cube-logo.jpg"
-                  alt="ETHBLOX"
+                  alt="BASEBLOX"
                   width={32}
                   height={32}
                   className="object-contain"
                 />
               </div>
-              <span className="text-xl font-heading font-bold text-[hsl(var(--ethblox-yellow))]">ETHBLOX</span>
+              <span className="text-xl font-heading font-bold text-[hsl(var(--ethblox-yellow))]">BASEBLOX</span>
             </Link>
             <p className="text-sm text-[hsl(var(--ethblox-text-secondary))] mb-4">
               Programmable matter for Ethereum's next cultural era.
             </p>
-            <p className="text-xs text-[hsl(var(--ethblox-text-tertiary))]">© 2025 ETHBLOX. All rights reserved.</p>
+            <p className="text-xs text-[hsl(var(--ethblox-text-tertiary))]">© 2025 BASEBLOX. All rights reserved.</p>
           </div>
 
           {/* Protocol Column */}

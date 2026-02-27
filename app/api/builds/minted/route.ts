@@ -166,7 +166,7 @@ export async function GET(request: Request) {
 
         builds.push({
           id: `chain_${tokenId}`,
-          name: `ETHBLOX #${tokenId}`,
+          name: `BASEBLOX #${tokenId}`,
           creator: owner.toLowerCase(),
           bricks: [],
           tokenId: String(tokenId),

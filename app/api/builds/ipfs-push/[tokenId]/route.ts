@@ -3,7 +3,14 @@ import { redis } from "@/lib/redis"
 import { tokenImageURI } from "@/lib/contracts/ethblox-contracts"
 import type { Build } from "@/lib/types"
 
-const LIGHTHOUSE_API_KEY = process.env.LIGHTHOUSE_API_KEY
+const IPFS_API_TOKEN = process.env.PINATA_JWT || process.env.LIGHTHOUSE_API_KEY
+const IPFS_UPLOAD_URL =
+  process.env.IPFS_UPLOAD_URL ||
+  process.env.LIGHTHOUSE_UPLOAD_URL ||
+  "https://api.pinata.cloud/pinning/pinFileToIPFS"
+const IPFS_GATEWAY_BASE = process.env.PINATA_GATEWAY_BASE || "https://gateway.pinata.cloud/ipfs"
+const IPFS_UPLOAD_TIMEOUT_MS = Number(process.env.IPFS_UPLOAD_TIMEOUT_MS || "25000")
+const IPFS_UPLOAD_RETRIES = Number(process.env.IPFS_UPLOAD_RETRIES || "4")
 const ADMIN_TOKEN = process.env.ADMIN_RESET_TOKEN
 
 function authorize(request: NextRequest): string | null {
@@ -16,6 +23,38 @@ function authorize(request: NextRequest): string | null {
   if (!token) return "Missing admin token"
   if (token !== ADMIN_TOKEN) return "Invalid admin token"
   return null
+}
+
+async function uploadWithRetry(formDataFactory: () => FormData) {
+  let lastError: Error | null = null
+  for (let attempt = 1; attempt <= IPFS_UPLOAD_RETRIES; attempt++) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), IPFS_UPLOAD_TIMEOUT_MS)
+    try {
+      const uploadRes = await fetch(IPFS_UPLOAD_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${IPFS_API_TOKEN}`,
+        },
+        body: formDataFactory(),
+        signal: controller.signal,
+      })
+      clearTimeout(timer)
+      if (!uploadRes.ok) {
+        const errText = await uploadRes.text()
+        lastError = new Error(`IPFS upload failed: ${uploadRes.status} ${errText}`)
+      } else {
+        return uploadRes
+      }
+    } catch (err: any) {
+      clearTimeout(timer)
+      lastError = err instanceof Error ? err : new Error(String(err))
+    }
+    if (attempt < IPFS_UPLOAD_RETRIES) {
+      await new Promise((r) => setTimeout(r, 700 * attempt))
+    }
+  }
+  throw lastError || new Error("IPFS upload failed")
 }
 
 // GET - Preview the metadata that would be pushed
@@ -33,7 +72,7 @@ export async function GET(
   if (!metadata) {
     return NextResponse.json({ error: "No app data found for token" }, { status: 404 })
   }
-  return NextResponse.json({ metadata, hasApiKey: !!LIGHTHOUSE_API_KEY })
+  return NextResponse.json({ metadata, hasApiKey: !!IPFS_API_TOKEN })
 }
 
 // POST - Push metadata JSON to IPFS via Lighthouse
@@ -48,9 +87,9 @@ export async function POST(
 
   const { tokenId } = await context.params
 
-  if (!LIGHTHOUSE_API_KEY) {
+  if (!IPFS_API_TOKEN) {
     return NextResponse.json(
-      { error: "LIGHTHOUSE_API_KEY not configured. Set it in environment variables." },
+      { error: "PINATA_JWT not configured (or LIGHTHOUSE_API_KEY fallback)." },
       { status: 500 }
     )
   }
@@ -61,38 +100,31 @@ export async function POST(
   }
 
   try {
-    // Upload metadata JSON via Lighthouse text upload API
+    // Upload metadata JSON via Pinata (or fallback-compatible endpoint)
     const metadataJson = JSON.stringify(metadata)
     const fileName = `${tokenId}.json`
 
-    const formData = new FormData()
-    const blob = new Blob([metadataJson], { type: "application/json" })
-    formData.append("file", blob, fileName)
-
-    const uploadRes = await fetch("https://node.lighthouse.storage/api/v0/add", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LIGHTHOUSE_API_KEY}`,
-      },
-      body: formData,
+    const uploadRes = await uploadWithRetry(() => {
+      const formData = new FormData()
+      const blob = new Blob([metadataJson], { type: "application/json" })
+      formData.append("file", blob, fileName)
+      return formData
     })
 
-    if (!uploadRes.ok) {
-      const errText = await uploadRes.text()
+    const uploadData = await uploadRes.json()
+    const cid = uploadData.IpfsHash || uploadData.Hash
+    if (!cid) {
       return NextResponse.json(
-        { error: `Lighthouse upload failed: ${uploadRes.status} ${errText}` },
+        { error: `IPFS upload response missing CID: ${JSON.stringify(uploadData)}` },
         { status: 502 }
       )
     }
-
-    const uploadData = await uploadRes.json()
-    const cid = uploadData.Hash
 
     return NextResponse.json({
       success: true,
       tokenId,
       cid,
-      gatewayUrl: `https://gateway.lighthouse.storage/ipfs/${cid}`,
+      gatewayUrl: `${IPFS_GATEWAY_BASE}/${cid}`,
       metadata,
     })
   } catch (err: any) {
@@ -124,7 +156,7 @@ async function buildMetadataForToken(tokenId: string) {
       ? String(build.name).trim()
       : kind === 0
         ? `Brick ${Math.min(w, d)}x${Math.max(w, d)} D${density}`
-        : `ETHBLOX ${kindLabel} #${tokenId}`
+        : `BASEBLOX ${kindLabel} #${tokenId}`
 
   // Build attributes array
   const attributes: { trait_type: string; value: string | number }[] = [
@@ -164,7 +196,7 @@ async function buildMetadataForToken(tokenId: string) {
 
   return {
     name: normalizedName,
-    description: `ETHBLOX ${kindLabel} - ${w}x${d} density ${density}`,
+    description: `BASEBLOX ${kindLabel} - ${w}x${d} density ${density}`,
     image: tokenImageURI(tokenId),
     animation_url: `${appBaseUrl}/viewer/${tokenId}`,
     external_url: `${appBaseUrl}/explore/${tokenId}`,

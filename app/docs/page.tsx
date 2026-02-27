@@ -6,8 +6,8 @@ import { SiteFooter } from "@/components/site-footer"
 import { redirect } from "next/navigation"
 
 export const metadata: Metadata = {
-  title: "Docs | ETHBLOX",
-  description: "Developer documentation for ETHBLOX protocol",
+  title: "Docs | BASEBLOX",
+  description: "Developer documentation for BASEBLOX protocol",
 }
 
 const docSections = [
@@ -85,7 +85,7 @@ export default function DocsPage() {
               <main className="lg:col-span-3 space-y-12">
                 <div>
                   <h1 className="text-4xl md:text-5xl font-bold mb-4">Documentation</h1>
-                  <p className="text-xl text-muted-foreground">Everything you need to build with ETHBLOX protocol.</p>
+                  <p className="text-xl text-muted-foreground">Everything you need to build with BASEBLOX protocol.</p>
                 </div>
 
                 <Card id="quick-start">

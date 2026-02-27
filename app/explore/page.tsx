@@ -2,8 +2,8 @@ import { SiteHeader } from "@/components/site-header"
 import { ExploreClient } from "@/components/explore/ExploreClient"
 
 export const metadata = {
-  title: "Explore Builds | ETHBLOX",
-  description: "Discover and browse placeholder builds in the ETHBLOX ecosystem",
+  title: "Explore Builds | BASEBLOX",
+  description: "Discover and browse placeholder builds in the BASEBLOX ecosystem",
 }
 
 export default function ExplorePage() {

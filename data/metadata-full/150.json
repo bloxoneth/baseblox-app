@@ -1,0 +1,33 @@
+{
+  "name": "ETHBLOX #150",
+  "description": "ETHBLOX Build - 1x1 density 1",
+  "image": "ipfs://bafybeibnk4kq7mesrs7wtwi2ypwlnxhazoqkwgoycol55n64tqseox2q2a/150.png",
+  "animation_url": "https://ethblox-app.vercel.app/viewer/150",
+  "external_url": "https://ethblox-app.vercel.app/explore/150",
+  "attributes": [
+    {
+      "trait_type": "kind",
+      "value": "Build"
+    },
+    {
+      "trait_type": "kindId",
+      "value": 1
+    },
+    {
+      "trait_type": "mass",
+      "value": 1
+    },
+    {
+      "trait_type": "density",
+      "value": 1
+    },
+    {
+      "trait_type": "width",
+      "value": 1
+    },
+    {
+      "trait_type": "depth",
+      "value": 1
+    }
+  ]
+}

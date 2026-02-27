@@ -1,0 +1,49 @@
+{
+  "name": "2x3-D1",
+  "description": "BASEBLOX Brick - 2x3 density 1",
+  "image": "ipfs://bafybeibnk4kq7mesrs7wtwi2ypwlnxhazoqkwgoycol55n64tqseox2q2a/153.png",
+  "animation_url": "https://ethblox.art/viewer/153",
+  "external_url": "https://ethblox.art/explore/153",
+  "attributes": [
+    {
+      "trait_type": "kind",
+      "value": "Brick"
+    },
+    {
+      "trait_type": "kindId",
+      "value": 0
+    },
+    {
+      "trait_type": "mass",
+      "value": 6
+    },
+    {
+      "trait_type": "density",
+      "value": 1
+    },
+    {
+      "trait_type": "width",
+      "value": 2
+    },
+    {
+      "trait_type": "depth",
+      "value": 3
+    },
+    {
+      "trait_type": "geometryHash",
+      "value": "0x180a8393bb38688965e16e563279c4b732a9c55e30071316b1de2c0044b9edff"
+    },
+    {
+      "trait_type": "bw_score",
+      "value": 2.14
+    },
+    {
+      "trait_type": "componentBuildIds",
+      "value": "1"
+    },
+    {
+      "trait_type": "componentCounts",
+      "value": "6"
+    }
+  ]
+}

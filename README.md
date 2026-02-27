@@ -1,4 +1,4 @@
-# ETHBLOX 3D Builder
+# BASEBLOX 3D Builder
 
 A 3D voxel brick builder built with Next.js, Three.js, and React Three Fiber.
 
@@ -60,7 +60,7 @@ One-step local bootstrap (persistent Anvil + env wiring):
 npm run local:up
 ```
 
-This reads local contract addresses from `/Users/seangardner/dev/ETHBLOX/ethblox-contracts/deployments/anvil.contracts.json` when present.
+This reads local contract addresses from `/Users/seangardner/dev/BASEBLOX/ethblox-contracts/deployments/anvil.contracts.json` when present.
 
 Switch app env to Base Sepolia:
 

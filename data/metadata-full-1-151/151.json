@@ -1,0 +1,49 @@
+{
+  "name": "Cross",
+  "description": "ETHBLOX Build - 3x3 density 1",
+  "image": "ipfs://bafybeibnk4kq7mesrs7wtwi2ypwlnxhazoqkwgoycol55n64tqseox2q2a/151.png",
+  "animation_url": "https://ethblox.art/viewer/151",
+  "external_url": "https://ethblox.art/explore/151",
+  "attributes": [
+    {
+      "trait_type": "kind",
+      "value": "Build"
+    },
+    {
+      "trait_type": "kindId",
+      "value": 1
+    },
+    {
+      "trait_type": "mass",
+      "value": 10
+    },
+    {
+      "trait_type": "density",
+      "value": 1
+    },
+    {
+      "trait_type": "width",
+      "value": 3
+    },
+    {
+      "trait_type": "depth",
+      "value": 3
+    },
+    {
+      "trait_type": "geometryHash",
+      "value": "0x0384c2307ae170172ef02e6e846fdd3356055017f55a0c71475c3abc2cc3f0ca"
+    },
+    {
+      "trait_type": "bw_score",
+      "value": 2.63
+    },
+    {
+      "trait_type": "componentBuildIds",
+      "value": "1"
+    },
+    {
+      "trait_type": "componentCounts",
+      "value": "10"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "name": "ETHBLOX #139",
+  "description": "ETHBLOX Brick - 1x1 density 1",
+  "image": "ipfs://bafybeibnk4kq7mesrs7wtwi2ypwlnxhazoqkwgoycol55n64tqseox2q2a/139.png",
+  "animation_url": "https://ethblox-app.vercel.app/viewer/139",
+  "external_url": "https://ethblox-app.vercel.app/explore/139",
+  "attributes": [
+    {
+      "trait_type": "kind",
+      "value": "Brick"
+    },
+    {
+      "trait_type": "kindId",
+      "value": 0
+    },
+    {
+      "trait_type": "mass",
+      "value": 1
+    },
+    {
+      "trait_type": "density",
+      "value": 1
+    },
+    {
+      "trait_type": "width",
+      "value": 1
+    },
+    {
+      "trait_type": "depth",
+      "value": 1
+    }
+  ]
+}

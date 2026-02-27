@@ -106,7 +106,7 @@ export default function GalleryClient() {
       <div className="container py-12">
         <div className="max-w-4xl mx-auto mb-12 text-center">
           <h1 className="text-4xl md:text-5xl font-bold mb-4">Gallery</h1>
-          <p className="text-lg text-muted-foreground mb-8">Explore minted Build NFTs from the ETHBLOX community</p>
+          <p className="text-lg text-muted-foreground mb-8">Explore minted Build NFTs from the BASEBLOX community</p>
 
           <Input
             type="search"

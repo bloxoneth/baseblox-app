@@ -1,0 +1,58 @@
+{
+  "runId": "local-reseed-8545",
+  "seed": 1337,
+  "startedAt": "2026-02-12T03:35:28.603Z",
+  "contracts": {
+    "blox": "0x59b670e9fA9D0A427751Af201D676719a970857b",
+    "distributor": "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1",
+    "licenseNFT": "0x322813Fd9A801c5507c9de605d63CEA4f2CE6c44",
+    "licenseRegistry": "0xa85233C63b9Ee964Add6F2cffe00Fd84eb32338f",
+    "buildNFT": "0x4A679253410272dd5232B3Ff7cF5dbB88f295319",
+    "chainId": 31337
+  },
+  "totals": {
+    "mintedCount": 278,
+    "bricks": 275,
+    "builds": 3,
+    "uniqueBrickSizesCovered": 55,
+    "densitiesCovered": 5
+  },
+  "invariants": [
+    {
+      "key": "kind_locked_before_brick_coverage",
+      "pass": true
+    },
+    {
+      "key": "kind_unlocked_after_all_sizes",
+      "pass": true
+    },
+    {
+      "key": "self_pay_accrual",
+      "pass": true
+    },
+    {
+      "key": "unique_users_increase",
+      "pass": true
+    },
+    {
+      "key": "license_blocked_after_burn",
+      "pass": true
+    },
+    {
+      "key": "burned_component_routes_to_treasury",
+      "pass": true
+    },
+    {
+      "key": "license_split_50_50",
+      "pass": true
+    },
+    {
+      "key": "rebalance_executes_under_guards",
+      "pass": true
+    },
+    {
+      "key": "rebalance_interval_guard",
+      "pass": true
+    }
+  ]
+}

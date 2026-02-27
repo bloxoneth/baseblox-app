@@ -18,14 +18,14 @@ export default function HomePage() {
             {/* Left: Content */}
             <div>
               <h1 className="text-6xl md:text-8xl lg:text-9xl font-heading font-bold text-[hsl(var(--ethblox-yellow))] mb-6 text-balance">
-                ETHBLOX
+                BASEBLOX
               </h1>
               <p className="text-2xl md:text-3xl text-[hsl(var(--ethblox-text-primary))] mb-6 text-balance leading-relaxed">
-                Programmable matter for Ethereum's next cultural era.
+                A live programmable matter sandbox on Base.
               </p>
               <p className="text-base md:text-lg text-[hsl(var(--ethblox-text-secondary))] mb-8 leading-relaxed">
-                3D on-chain art, programmable matter, AI-native agents & a circular economy for Ethereum's evolving
-                creative frontier.
+                This MVP is running in public so we can pressure-test minting, composition, licensing, burn behavior,
+                and reward routing with real wallets and real transactions.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 <Button
@@ -33,7 +33,7 @@ export default function HomePage() {
                   className="bg-[hsl(var(--ethblox-green))] text-[hsl(var(--ethblox-bg))] hover:bg-[hsl(var(--ethblox-green))]/90 font-heading text-base"
                   size="lg"
                 >
-                  <Link href="/whitepaper">READ THE PAPER</Link>
+                  <Link href="/whitepaper">READ SPEC</Link>
                 </Button>
                 <Button
                   asChild
@@ -48,7 +48,7 @@ export default function HomePage() {
                   className="border-[hsl(var(--ethblox-border))] text-[hsl(var(--ethblox-text-primary))] hover:bg-[hsl(var(--ethblox-surface))] hover:border-[hsl(var(--ethblox-green))] font-heading text-base bg-transparent"
                   size="lg"
                 >
-                  <Link href="#">JOIN BUILDERS CIRCLE</Link>
+                  <Link href="/explore">EXPLORE BUILDS</Link>
                 </Button>
               </div>
             </div>
@@ -62,8 +62,8 @@ export default function HomePage() {
           {/* Physics Engine Tagline */}
           <div className="mt-16 text-center">
             <p className="text-lg text-[hsl(var(--ethblox-text-secondary))] leading-relaxed max-w-4xl mx-auto">
-              ETHBLOX is a physics-driven creative substrate for Ethereum — a place where matter, shape, and reputation
-              converge into a living cultural economy.
+              BASEBLOX enforces on-chain constraints: density-aware mass, brick composition, BLOX licensing, and
+              immutable geometry history for minted builds.
             </p>
           </div>
         </section>
@@ -71,7 +71,7 @@ export default function HomePage() {
         {/* Three Primitives Section */}
         <section className="container mx-auto px-6 max-w-[1800px] py-24">
           <h2 className="text-4xl md:text-5xl font-heading font-bold text-center text-[hsl(var(--ethblox-text-primary))] mb-4">
-            A Universe Made of Three Primitives
+            Three Core Primitives
           </h2>
           <div className="grid md:grid-cols-3 gap-8 mt-12">
             {/* BLOX Card */}
@@ -83,13 +83,13 @@ export default function HomePage() {
                 <div>
                   <h3 className="text-2xl font-heading font-bold text-[hsl(var(--ethblox-text-primary))] mb-1">BLOX</h3>
                   <span className="text-xs text-[hsl(var(--ethblox-text-tertiary))] font-mono">
-                    ERC20 · Digital Matter
+                    ERC20 · Mass + Licensing
                   </span>
                 </div>
               </div>
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">
-                Scarce, conserved, valuable. Everything is built from BLOX. Lock BLOX into BUILDS → destroy → recover
-                80%. Matter becomes a cultural resource shaped by human imagination.
+                BLOX is the protocol material. It is locked when minting, used for license purchases, and partially
+                returned on burn for eligible kinds.
               </p>
             </Card>
 
@@ -104,13 +104,13 @@ export default function HomePage() {
                     BRICKS
                   </h3>
                   <span className="text-xs text-[hsl(var(--ethblox-text-tertiary))] font-mono">
-                    ERC721 Moulds · Geometry
+                    ERC721 · Kind 0
                   </span>
                 </div>
               </div>
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">
-                The canonical shape vocabulary. Each mould has a usage curve; higher demand → higher licence cost. ETH
-                licence fees split: 50% creator / 30% protocol-owned liquidity / 20% treasury.
+                Bricks are canonical reusable components. 1x1 genesis bricks seed each density, then larger bricks are
+                minted from components with density checks and unique brick specs.
               </p>
             </Card>
 
@@ -125,13 +125,13 @@ export default function HomePage() {
                     BUILDS
                   </h3>
                   <span className="text-xs text-[hsl(var(--ethblox-text-tertiary))] font-mono">
-                    ERC721/1155 · Artifacts
+                    ERC721 + ERC1155 · Kind 1 / Kind 2
                   </span>
                 </div>
               </div>
               <p className="text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">
-                Voxel sculptures made of actual BLOX. Each BUILD stores mass, mould lineage, provenance & Builder
-                Weight. The whole system is simply: BLOX + BRICKS → BUILDS.
+                Kind 1 builds and Kind 2 collector editions carry composition lineage, locked BLOX, and builder weight.
+                Licensing is BLOX-only and tracks supply against mass and density.
               </p>
             </Card>
           </div>
@@ -141,11 +141,11 @@ export default function HomePage() {
         <section className="container mx-auto px-6 max-w-[1800px] py-24">
           <div className="max-w-4xl mx-auto text-center">
             <h2 className="text-4xl md:text-5xl font-heading font-bold text-[hsl(var(--ethblox-text-primary))] mb-6">
-              Not a Metaverse — A New On-Chain Art Primitive
+              MVP Sandbox Scope
             </h2>
             <p className="text-lg text-[hsl(var(--ethblox-text-secondary))] leading-relaxed">
-              No land sales. No avatars. No VR. ETHBLOX is a cultural physics engine disguised as a toy — a way to
-              sculpt 3D artifacts on-chain with real constraints, real economics, and real history.
+              The current phase focuses on correctness and game design: minting rules, license enforcement paths,
+              treasury routing, burn behavior, BW distribution, metadata publishing, and marketplace rendering.
             </p>
           </div>
         </section>
@@ -154,22 +154,22 @@ export default function HomePage() {
         <section className="container mx-auto px-6 max-w-[1800px] py-24">
           <div className="text-center mb-12">
             <h2 className="text-4xl md:text-5xl font-heading font-bold text-[hsl(var(--ethblox-text-primary))] mb-4">
-              Genesis BRICKS: Ethereum's First Shapes
+              Brick Grid and Density Matrix
             </h2>
             <p className="text-lg text-[hsl(var(--ethblox-text-secondary))] leading-relaxed max-w-3xl mx-auto">
-              210 foundational moulds form the base vocabulary of a new creative era. From these emerge the early
-              monuments — fossils of a future medium
+              Bricks are tested across sizes and densities with square/rectangle normalization, density matching, and
+              composition coverage before higher kinds are opened.
             </p>
           </div>
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
             {[
-              "ETHBLOX DOGE",
-              "ETHBLOX PEPE",
-              "ETHBLOX PUNKS",
-              "First 67-BLOX statue",
-              "Tony Hawk skateboard",
-              "Beeple x ETHBLOX installation",
+              "Density 1 Brick Sweep",
+              "Density 8 Brick Sweep",
+              "Density 27 Brick Sweep",
+              "Density 64 Brick Sweep",
+              "Density 125 Brick Sweep",
+              "Kind Unlock Coverage",
             ].map((name) => (
               <Card
                 key={name}
@@ -179,7 +179,7 @@ export default function HomePage() {
                   <Lock className="h-12 w-12 text-[hsl(var(--ethblox-text-tertiary))]" />
                 </div>
                 <h3 className="font-heading font-bold text-[hsl(var(--ethblox-text-primary))] mb-2">{name}</h3>
-                <p className="text-sm text-[hsl(var(--ethblox-text-secondary))]">Coming Soon</p>
+                <p className="text-sm text-[hsl(var(--ethblox-text-secondary))]">Integrated in active test runs</p>
               </Card>
             ))}
           </div>
@@ -207,25 +207,25 @@ export default function HomePage() {
               <div>
                 <div className="bg-[hsl(var(--ethblox-surface))] border border-[hsl(var(--ethblox-border))] rounded-lg p-8 mb-6">
                   <p className="text-[hsl(var(--ethblox-text-secondary))] mb-4">
-                    Builder Weight measures creative complexity:
+                    Builder Weight is tunable and evaluated in simulations against locked BLOX and usage:
                   </p>
                   <div className="bg-[hsl(var(--ethblox-surface-elevated))] rounded-lg p-6 mb-6 text-center">
                     <code className="text-xl text-[hsl(var(--ethblox-yellow))]">
-                      BW = log(1 + mass) × log(2 + mouldDiversity)
+                      emissions weight = locked BLOX share × BW multiplier policy
                     </code>
                   </div>
                   <div className="grid grid-cols-3 gap-4 text-center">
                     <div className="bg-[hsl(var(--ethblox-surface-elevated))] rounded-lg p-4">
                       <div className="text-3xl font-heading font-bold text-[hsl(var(--ethblox-green))]">42.7</div>
-                      <div className="text-xs text-[hsl(var(--ethblox-text-tertiary))] mt-1">Example BW</div>
+                      <div className="text-xs text-[hsl(var(--ethblox-text-tertiary))] mt-1">Simulated BW</div>
                     </div>
                     <div className="bg-[hsl(var(--ethblox-surface-elevated))] rounded-lg p-4">
                       <div className="text-3xl font-heading font-bold text-[hsl(var(--ethblox-blue))]">127</div>
-                      <div className="text-xs text-[hsl(var(--ethblox-text-tertiary))] mt-1">BLOX Mass</div>
+                      <div className="text-xs text-[hsl(var(--ethblox-text-tertiary))] mt-1">Locked BLOX</div>
                     </div>
                     <div className="bg-[hsl(var(--ethblox-surface-elevated))] rounded-lg p-4">
                       <div className="text-3xl font-heading font-bold text-[hsl(var(--ethblox-yellow))]">8</div>
-                      <div className="text-xs text-[hsl(var(--ethblox-text-tertiary))] mt-1">Mould Types</div>
+                      <div className="text-xs text-[hsl(var(--ethblox-text-tertiary))] mt-1">Unique Users</div>
                     </div>
                   </div>
                 </div>
@@ -239,7 +239,7 @@ export default function HomePage() {
                   </div>
                   <div>
                     <p className="text-[hsl(var(--ethblox-text-primary))] leading-relaxed">
-                      Higher BW → larger share of ETH rewards
+                      Weight models can be tuned without changing core mint invariants
                     </p>
                   </div>
                 </div>
@@ -249,7 +249,7 @@ export default function HomePage() {
                   </div>
                   <div>
                     <p className="text-[hsl(var(--ethblox-text-primary))] leading-relaxed">
-                      Rewards come from mould licence revenue
+                      Distribution behavior is tested against reuse and self-pay scenarios
                     </p>
                   </div>
                 </div>
@@ -259,7 +259,7 @@ export default function HomePage() {
                   </div>
                   <div>
                     <p className="text-[hsl(var(--ethblox-text-primary))] leading-relaxed">
-                      No token staking — only creativity is staked
+                      Burned component handling routes safely instead of reverting flows
                     </p>
                   </div>
                 </div>
@@ -269,7 +269,7 @@ export default function HomePage() {
                   </div>
                   <div>
                     <p className="text-[hsl(var(--ethblox-text-primary))] leading-relaxed">
-                      Artistic depth becomes economically meaningful
+                      BW + locked BLOX shaping is benchmarked before final production parameters
                     </p>
                   </div>
                 </div>
@@ -282,37 +282,35 @@ export default function HomePage() {
         <section className="container mx-auto px-6 max-w-[1800px] py-24">
           <div className="text-center mb-12">
             <h2 className="text-4xl md:text-5xl font-heading font-bold text-[hsl(var(--ethblox-text-primary))] mb-4">
-              Circular Economy — Zero Emissions, Pure Usage
+              Active Fee Routing
             </h2>
             <p className="text-lg text-[hsl(var(--ethblox-text-secondary))] leading-relaxed max-w-3xl mx-auto">
-              Usage generates ETH fees → routed through the Liquidity Engine → deepens liquidity → drives more usage.
+              Current mint fee flow follows the live MVP split and is exercised in simulation and UI mint paths.
             </p>
           </div>
 
           <div className="grid md:grid-cols-3 gap-8 mb-12">
             <Card className="bg-[hsl(var(--ethblox-surface))] border-[hsl(var(--ethblox-border))] p-8 text-center hover:border-[hsl(var(--ethblox-green))] transition-all">
-              <div className="text-6xl font-heading font-bold text-[hsl(var(--ethblox-green))] mb-2">50%</div>
-              <h3 className="font-heading font-bold text-[hsl(var(--ethblox-text-primary))] mb-2">Mould Creator</h3>
-              <p className="text-sm text-[hsl(var(--ethblox-text-secondary))]">Perpetual royalties</p>
+              <div className="text-6xl font-heading font-bold text-[hsl(var(--ethblox-green))] mb-2">40%</div>
+              <h3 className="font-heading font-bold text-[hsl(var(--ethblox-text-primary))] mb-2">Builder Share</h3>
+              <p className="text-sm text-[hsl(var(--ethblox-text-secondary))]">Accrued via Distributor</p>
             </Card>
 
             <Card className="bg-[hsl(var(--ethblox-surface))] border-[hsl(var(--ethblox-border))] p-8 text-center hover:border-[hsl(var(--ethblox-green))] transition-all">
               <div className="text-6xl font-heading font-bold text-[hsl(var(--ethblox-blue))] mb-2">30%</div>
-              <h3 className="font-heading font-bold text-[hsl(var(--ethblox-text-primary))] mb-2">
-                Protocol Liquidity
-              </h3>
-              <p className="text-sm text-[hsl(var(--ethblox-text-secondary))]">Owned by protocol</p>
+              <h3 className="font-heading font-bold text-[hsl(var(--ethblox-text-primary))] mb-2">Liquidity</h3>
+              <p className="text-sm text-[hsl(var(--ethblox-text-secondary))]">Protocol routing target</p>
             </Card>
 
             <Card className="bg-[hsl(var(--ethblox-surface))] border-[hsl(var(--ethblox-border))] p-8 text-center hover:border-[hsl(var(--ethblox-green))] transition-all">
-              <div className="text-6xl font-heading font-bold text-[hsl(var(--ethblox-yellow))] mb-2">20%</div>
-              <h3 className="font-heading font-bold text-[hsl(var(--ethblox-text-primary))] mb-2">Treasury</h3>
-              <p className="text-sm text-[hsl(var(--ethblox-text-secondary))]">Growth & grants</p>
+              <div className="text-6xl font-heading font-bold text-[hsl(var(--ethblox-yellow))] mb-2">30%</div>
+              <h3 className="font-heading font-bold text-[hsl(var(--ethblox-text-primary))] mb-2">Protocol Treasury</h3>
+              <p className="text-sm text-[hsl(var(--ethblox-text-secondary))]">Operations and runway</p>
             </Card>
           </div>
 
           <p className="text-center text-lg text-[hsl(var(--ethblox-text-secondary))]">
-            No inflation. No farming. Culture powers the economy.
+            License purchases are paid in BLOX and supply is density-aware.
           </p>
         </section>
 
@@ -320,22 +318,22 @@ export default function HomePage() {
         <section className="container mx-auto px-6 max-w-[1800px] py-24">
           <div className="text-center mb-12">
             <h2 className="text-4xl md:text-5xl font-heading font-bold text-[hsl(var(--ethblox-text-primary))] mb-4">
-              AI-Native Builders: Legoman Agents Arrive
+              Creator Workflow in MVP
             </h2>
             <p className="text-lg text-[hsl(var(--ethblox-text-secondary))] leading-relaxed max-w-3xl mx-auto">
-              ETHBLOX becomes a collaborative sculpting field where intelligent agents co-create with humans in real
-              time.
+              Designers can create and save compositions locally, then mint on-chain when ready. Metadata and previews
+              are validated across app, chain, and IPFS paths.
             </p>
           </div>
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
             {[
               "Generate builds",
-              "Remix human creations",
-              "Optimize Builder Weight",
-              "Arbitrage mould curves",
-              "Execute creative jobs",
-              "Co-create with humans",
+              "Compose with licensed components",
+              "Mint Kind 0 / Kind 1 / Kind 2",
+              "Inspect pre-mint diagnostics",
+              "Verify metadata parity",
+              "Test burn and reward flows",
             ].map((capability) => (
               <Card
                 key={capability}
@@ -347,7 +345,7 @@ export default function HomePage() {
           </div>
 
           <p className="text-center text-lg text-[hsl(var(--ethblox-text-secondary))] mt-12">
-            A living ecology of human + AI creativity.
+            This is shipping code under active economic and UX testing.
           </p>
         </section>
 
@@ -355,21 +353,21 @@ export default function HomePage() {
         <section className="container mx-auto px-6 max-w-[1800px] py-24">
           <div className="text-center mb-12">
             <h2 className="text-4xl md:text-5xl font-heading font-bold text-[hsl(var(--ethblox-text-primary))] mb-4">
-              ETHBLOX API — A Playground for Quantitative Creativity
+              Data and Verification Surface
             </h2>
             <p className="text-lg text-[hsl(var(--ethblox-text-secondary))] leading-relaxed max-w-3xl mx-auto">
-              Where DeFi sensibilities meet digital craftsmanship.
+              Fast app reads, on-chain critical checks, and explicit diff tooling for chain/IPFS/app consistency.
             </p>
           </div>
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
             {[
-              "Mould & licence arbitrage",
-              "Discovering undervalued BUILDS",
-              "Build-based trading strategies",
-              "AI-driven creative jobs",
-              "Simulation-based workflows",
-              "Real-time market analysis",
+              "Token-level chain inspection",
+              "Composition and component lineage",
+              "License curve and supply visibility",
+              "Canonical metadata publishing",
+              "Batch simulation imports",
+              "Production readiness checks",
             ].map((feature) => (
               <Card
                 key={feature}
@@ -385,11 +383,11 @@ export default function HomePage() {
         <section className="container mx-auto px-6 max-w-[1800px] py-24">
           <div className="max-w-4xl mx-auto text-center">
             <h2 className="text-4xl md:text-5xl font-heading font-bold text-[hsl(var(--ethblox-text-primary))] mb-6">
-              Why Now?
+              Build With Us
             </h2>
             <p className="text-lg text-[hsl(var(--ethblox-text-secondary))] leading-relaxed mb-8">
-              Ethereum needs a new artistic language — simple, expressive, economically alive. A toy with gravitas. A
-              protocol with delight. ETHBLOX becomes the creative furnace of Ethereum's next cultural cycle.
+              BASEBLOX MVP is intentionally open and iterative. If you break an edge case, find a data mismatch, or
+              discover an economic exploit, that feedback directly shapes the production deployment.
             </p>
             <Button
               asChild

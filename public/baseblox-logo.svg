@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="BASEBLOX logo">
+  <rect width="512" height="512" fill="#E9E9E9"/>
+  <g fill="#1E3AF2">
+    <!-- top cap -->
+    <polygon points="74,182 256,286 438,182 347,136 347,164 256,216 165,164 165,136"/>
+    <!-- left face -->
+    <polygon points="74,206 245,303 245,470 74,376"/>
+    <!-- right face -->
+    <polygon points="267,303 438,206 438,376 267,470"/>
+    <!-- stud -->
+    <path d="M256 56c46 0 80 35 80 82v23c0 42-32 65-80 65s-80-23-80-65v-23c0-47 34-82 80-82z"/>
+  </g>
+</svg>

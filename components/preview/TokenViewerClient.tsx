@@ -16,7 +16,7 @@ export function TokenViewerClient({ tokenId }: { tokenId: string }) {
 
   const bricks = Array.isArray(appData?.bricks) && appData.bricks.length > 0 ? appData.bricks : undefined
   const geometryHash = appData?.geometryHash || appData?.buildHash || onchainData?.onchain?.geometryHash || ""
-  const title = appData?.name || onchainData?.ipfsMetadata?.name || `ETHBLOX #${tokenId}`
+  const title = appData?.name || onchainData?.ipfsMetadata?.name || `BASEBLOX #${tokenId}`
   const kind = Number(onchainData?.onchain?.kind ?? appData?.kind ?? -1)
   const isBrick = kind === 0
   const imageFromMetadataRaw = typeof onchainData?.ipfsMetadata?.image === "string" ? onchainData.ipfsMetadata.image : ""

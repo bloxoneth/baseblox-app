@@ -2,8 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 const mode = (process.argv[2] || "").toLowerCase();
-if (mode !== "anvil" && mode !== "sepolia") {
-  console.error("Usage: node scripts/set-network-env.mjs <anvil|sepolia>");
+if (mode !== "anvil" && mode !== "sepolia" && mode !== "sepolia-test") {
+  console.error("Usage: node scripts/set-network-env.mjs <anvil|sepolia|sepolia-test>");
   process.exit(1);
 }
 
@@ -36,10 +36,24 @@ const presets = {
     NEXT_PUBLIC_RPC_URL: "https://sepolia.base.org",
     BASE_SEPOLIA_RPC_URL: "https://sepolia.base.org",
     NEXT_PUBLIC_BLOCK_EXPLORER_URL: "https://sepolia.basescan.org",
-    NEXT_PUBLIC_BUILDNFT_ADDRESS: "0x6Da8ABFeCfd468E6CfCc551E014388f7B279f1A3",
-    NEXT_PUBLIC_LICENSE_REGISTRY_ADDRESS: "0x6Fe315D0CA4EB570dC96d2b1C7E2a287d492Cc5A",
-    NEXT_PUBLIC_LICENSE_NFT_ADDRESS: "0xfEb8dCa56E849E91E7D3B4a2Ba2673Bb5FDf080E",
-    NEXT_PUBLIC_DISTRIBUTOR_ADDRESS: "0xf9b225DAbD233a28da36C3379197bD165759E865",
+    NEXT_PUBLIC_BUILDNFT_ADDRESS: "0xf29a22a458c0237fdb5cc26a07df8191d242ae00",
+    NEXT_PUBLIC_LICENSE_REGISTRY_ADDRESS: "0x0b9fe09ea3abe8d3a54d53f949c364230edc75b5",
+    NEXT_PUBLIC_LICENSE_NFT_ADDRESS: "0x8573c37452982de0d23cbd3c9e98c88853bd4e80",
+    NEXT_PUBLIC_DISTRIBUTOR_ADDRESS: "0x2c96057a8774153282592ca5afbf4dd8178954cc",
+    NEXT_PUBLIC_BLOX_ADDRESS: "0x6578d53995FEB0e486135b893B8bC16AE1a5Ec52",
+  },
+  "sepolia-test": {
+    NEXT_PUBLIC_ENABLE_NETWORK_SWITCHER: "true",
+    NEXT_PUBLIC_CHAIN_ID: "84532",
+    NEXT_PUBLIC_CHAIN_HEX: "0x14a34",
+    NEXT_PUBLIC_NETWORK_NAME: "base-sepolia-test",
+    NEXT_PUBLIC_RPC_URL: "https://sepolia.base.org",
+    BASE_SEPOLIA_RPC_URL: "https://sepolia.base.org",
+    NEXT_PUBLIC_BLOCK_EXPLORER_URL: "https://sepolia.basescan.org",
+    NEXT_PUBLIC_BUILDNFT_ADDRESS: "0x65d577e20dfb8c79b4c7a4a76b64456e3c552a7e",
+    NEXT_PUBLIC_LICENSE_REGISTRY_ADDRESS: "0xba629bdc8e234df00e794ab3d37cf94a2a519a87",
+    NEXT_PUBLIC_LICENSE_NFT_ADDRESS: "0xceb1ae32c4d361cad286bc70f36d6c6764098204",
+    NEXT_PUBLIC_DISTRIBUTOR_ADDRESS: "0x9542c5d369a35bb4ec7b341c876bec33cac95f2b",
     NEXT_PUBLIC_BLOX_ADDRESS: "0x6578d53995FEB0e486135b893B8bC16AE1a5Ec52",
   },
 };

@@ -5,8 +5,8 @@ import { SiteHeader } from "@/components/site-header"
 import { SiteFooter } from "@/components/site-footer"
 
 export const metadata: Metadata = {
-  title: "BRICKS | ETHBLOX",
-  description: "Geometry templates for building with ETHBLOX",
+  title: "BRICKS | BASEBLOX",
+  description: "Geometry templates for building with BASEBLOX",
 }
 
 const brickTemplates = [

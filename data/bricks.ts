@@ -90,15 +90,15 @@ export function getBricksByDensity(density: number): BrickNFT[] {
   return ALL_BRICKS.filter(b => b.density === density)
 }
 
-// Get mint fee (from contract: 0.01 ETH)
+// Get mint fee (from contract: 0.001 ETH test setting)
 export function getMintFee(): number {
-  return 0.01
+  return 0.001
 }
 
 // Get suggested price for an unminted brick based on its properties
-// This is informational only - actual mint fee is fixed at 0.01 ETH
+// This is informational only - actual mint fee is fixed at 0.001 ETH (test setting)
 export function getSuggestedMintPrice(brick: BrickNFT): number {
-  return 0.01 // Fixed mint fee from contract
+  return 0.001 // Fixed mint fee from contract
 }
 
 // Format brick display name: WxD-D(x) e.g. 2x2-D1 (always normalized min x max)

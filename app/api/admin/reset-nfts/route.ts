@@ -3,7 +3,7 @@ import { redis } from "@/lib/redis"
 import { CONTRACTS } from "@/lib/contracts/ethblox-contracts"
 
 /**
- * Admin-only endpoint to reset all ETHBLOX app-level NFT data.
+ * Admin-only endpoint to reset all BASEBLOX app-level NFT data.
  * 
  * This clears Redis cache to restart the app in a "genesis" state.
  * It does NOT reset on-chain data - only app-level cached data.
@@ -16,8 +16,8 @@ import { CONTRACTS } from "@/lib/contracts/ethblox-contracts"
  * Body: { "confirmation": "RESET_NFTS" }
  */
 
-// Redis key prefixes used by ETHBLOX
-const ETHBLOX_KEY_PATTERNS = [
+// Redis key prefixes used by BASEBLOX
+const BASEBLOX_KEY_PATTERNS = [
   "build:*",           // Individual build data
   "builds:*",          // Build lists (public, popular, by tag)
   "hash:*",            // Geometry hash to build ID mappings
@@ -29,7 +29,7 @@ const ETHBLOX_KEY_PATTERNS = [
 ] as const
 
 // Specific keys (not patterns) that need to be deleted
-const ETHBLOX_SPECIFIC_KEYS = [
+const BASEBLOX_SPECIFIC_KEYS = [
   "minted_tokens",     // Set of all minted token IDs
   "builds:public",     // Sorted set of public builds
 ] as const
@@ -95,19 +95,19 @@ export async function POST(request: NextRequest) {
     const operator = body.operator || "unknown"
     
     console.log("[ADMIN RESET] ========================================")
-    console.log("[ADMIN RESET] Starting ETHBLOX data reset")
+    console.log("[ADMIN RESET] Starting BASEBLOX data reset")
     console.log("[ADMIN RESET] Timestamp:", timestamp)
     console.log("[ADMIN RESET] Operator:", operator)
     console.log("[ADMIN RESET] Network: Base Sepolia")
     console.log("[ADMIN RESET] BuildNFT:", CONTRACTS.BUILD_NFT)
     console.log("[ADMIN RESET] ========================================")
     
-    // ========== REDIS RESET: Delete all ETHBLOX-related keys ==========
+    // ========== REDIS RESET: Delete all BASEBLOX-related keys ==========
     const deletedPatterns: Record<string, number> = {}
     let totalDeleted = 0
     
     // Delete pattern-based keys
-    for (const pattern of ETHBLOX_KEY_PATTERNS) {
+    for (const pattern of BASEBLOX_KEY_PATTERNS) {
       try {
         // Get all keys matching this pattern
         const keys = await redis.keys(pattern)
@@ -134,7 +134,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Delete specific keys (not patterns)
-    for (const key of ETHBLOX_SPECIFIC_KEYS) {
+    for (const key of BASEBLOX_SPECIFIC_KEYS) {
       try {
         const deleted = await redis.del(key)
         if (deleted) {

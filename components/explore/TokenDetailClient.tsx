@@ -392,7 +392,7 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
               target="_blank"
               className="text-sm text-[hsl(var(--ethblox-accent-cyan))] hover:underline flex items-center gap-1"
             >
-              ETHBLOX BuildNFT
+              BASEBLOX BuildNFT
               <ExternalLink className="h-3 w-3" />
             </Link>
             <h1 className="text-2xl font-bold text-[hsl(var(--ethblox-text-primary))] mt-1">
@@ -494,7 +494,9 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
                     </DetailRow>
                     <DetailRow label="Current Price">
                       <span className="text-xs text-[hsl(var(--ethblox-text-primary))]">
-                        {licenseData?.nextUnitPriceEth ? `${Number(licenseData.nextUnitPriceEth).toFixed(6)} ETH` : "--"}
+                        {licenseData?.nextUnitPriceBlox
+                          ? `${Number(licenseData.nextUnitPriceBlox).toFixed(6)} BLOX`
+                          : "--"}
                       </span>
                     </DetailRow>
                     <DetailRow label="Minted / Max">

@@ -22,14 +22,14 @@ export function SiteHeader() {
           <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
             <div className="w-8 h-8 relative">
               <Image
-                src="/ethblox-logo.png"
-                alt="ETHBLOX"
+                src="/baseblox-logo.svg"
+                alt="BASEBLOX"
                 width={32}
                 height={32}
                 className="object-contain"
               />
             </div>
-            <span className="text-xl font-heading font-bold text-[hsl(var(--ethblox-yellow))]">ETHBLOX</span>
+            <span className="text-xl font-heading font-bold text-[hsl(var(--ethblox-yellow))]">BASEBLOX</span>
           </Link>
 
           {/* Desktop Navigation */}

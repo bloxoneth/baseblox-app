@@ -4,38 +4,38 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* ETHBLOX Dark Theme */
-  --ethblox-bg: 210 11% 15%;
-  --ethblox-surface: 210 11% 18%;
-  --ethblox-surface-elevated: 210 11% 22%;
-  --ethblox-border: 210 8% 28%;
-  --ethblox-text-primary: 210 8% 95%;
-  --ethblox-text-secondary: 210 8% 60%;
-  --ethblox-text-tertiary: 210 8% 40%;
-  --ethblox-yellow: 48 96% 68%;
-  --ethblox-green: 142 76% 63%;
-  --ethblox-blue: 195 92% 68%;
-  --ethblox-accent-cyan: 142 76% 63%;
+  /* BASEBLOX light palette: white base + blue/grey accents */
+  --ethblox-bg: 215 33% 98%;
+  --ethblox-surface: 0 0% 100%;
+  --ethblox-surface-elevated: 214 36% 96%;
+  --ethblox-border: 215 20% 84%;
+  --ethblox-text-primary: 222 47% 11%;
+  --ethblox-text-secondary: 215 16% 40%;
+  --ethblox-text-tertiary: 215 12% 55%;
+  --ethblox-yellow: 218 84% 56%;
+  --ethblox-green: 210 35% 52%;
+  --ethblox-blue: 221 83% 53%;
+  --ethblox-accent-cyan: 217 91% 60%;
 
-  --background: 210 11% 15%;
-  --foreground: 210 8% 95%;
-  --card: 210 11% 18%;
-  --card-foreground: 210 8% 95%;
-  --popover: 210 11% 22%;
-  --popover-foreground: 210 8% 95%;
-  --primary: 48 96% 68%;
-  --primary-foreground: 210 11% 15%;
-  --secondary: 142 76% 63%;
-  --secondary-foreground: 210 11% 15%;
-  --muted: 210 11% 18%;
-  --muted-foreground: 210 8% 60%;
-  --accent: 142 76% 63%;
-  --accent-foreground: 210 11% 15%;
+  --background: 215 33% 98%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --primary: 221 83% 53%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 214 32% 92%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 214 28% 94%;
+  --muted-foreground: 215 16% 40%;
+  --accent: 214 44% 93%;
+  --accent-foreground: 222 47% 11%;
   --destructive: 0 84% 60%;
-  --destructive-foreground: 210 8% 95%;
-  --border: 210 8% 28%;
-  --input: 210 8% 28%;
-  --ring: 142 76% 63%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 215 20% 84%;
+  --input: 215 20% 84%;
+  --ring: 217 91% 60%;
   --radius: 0.5rem;
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
@@ -92,25 +92,25 @@
   --font-mono: "JetBrains Mono", "JetBrains Mono Fallback", monospace;
   --font-heading: "Space Grotesk", "Space Grotesk Fallback", sans-serif;
 
-  --color-background: hsl(210 11% 15%);
-  --color-foreground: hsl(210 8% 95%);
-  --color-card: hsl(210 11% 18%);
-  --color-card-foreground: hsl(210 8% 95%);
-  --color-popover: hsl(210 11% 22%);
-  --color-popover-foreground: hsl(210 8% 95%);
-  --color-primary: hsl(48 96% 68%);
-  --color-primary-foreground: hsl(210 11% 15%);
-  --color-secondary: hsl(142 76% 63%);
-  --color-secondary-foreground: hsl(210 11% 15%);
-  --color-muted: hsl(210 11% 18%);
-  --color-muted-foreground: hsl(210 8% 60%);
-  --color-accent: hsl(142 76% 63%);
-  --color-accent-foreground: hsl(210 11% 15%);
+  --color-background: hsl(215 33% 98%);
+  --color-foreground: hsl(222 47% 11%);
+  --color-card: hsl(0 0% 100%);
+  --color-card-foreground: hsl(222 47% 11%);
+  --color-popover: hsl(0 0% 100%);
+  --color-popover-foreground: hsl(222 47% 11%);
+  --color-primary: hsl(221 83% 53%);
+  --color-primary-foreground: hsl(0 0% 100%);
+  --color-secondary: hsl(214 32% 92%);
+  --color-secondary-foreground: hsl(222 47% 11%);
+  --color-muted: hsl(214 28% 94%);
+  --color-muted-foreground: hsl(215 16% 40%);
+  --color-accent: hsl(214 44% 93%);
+  --color-accent-foreground: hsl(222 47% 11%);
   --color-destructive: hsl(0 84% 60%);
-  --color-destructive-foreground: hsl(210 8% 95%);
-  --color-border: hsl(210 8% 28%);
-  --color-input: hsl(210 8% 28%);
-  --color-ring: hsl(142 76% 63%);
+  --color-destructive-foreground: hsl(0 0% 100%);
+  --color-border: hsl(215 20% 84%);
+  --color-input: hsl(215 20% 84%);
+  --color-ring: hsl(217 91% 60%);
   --color-chart-1: oklch(0.488 0.243 264.376);
   --color-chart-2: oklch(0.696 0.17 162.48);
   --color-chart-3: oklch(0.769 0.188 70.08);
@@ -148,14 +148,14 @@
   }
 }
 
-/* Added ETHBLOX custom utilities */
+/* Added BASEBLOX custom utilities */
 @layer utilities {
   .ethblox-glow {
-    box-shadow: 0 0 20px rgba(74, 222, 128, 0.15);
+    box-shadow: 0 0 20px rgba(37, 99, 235, 0.16);
   }
 
   .ethblox-border-glow {
-    box-shadow: 0 0 0 1px hsl(var(--ethblox-green));
+    box-shadow: 0 0 0 1px hsl(var(--ethblox-blue));
   }
 
   @keyframes float-up {

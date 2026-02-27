@@ -1199,8 +1199,8 @@ export function MintDebugClient() {
                     const specKey = generateSpecKey(debugData.baseWidth, debugData.baseDepth, mintDensity)
                     const componentsHash = generateComponentsHash(componentPayload.ids)
                     const metadata = {
-                      name: debugData.buildName || `ETHBLOX #${contractState.nextTokenId?.toString() || "?"}`,
-                      description: "ETHBLOX build/brick",
+                      name: debugData.buildName || `BASEBLOX #${contractState.nextTokenId?.toString() || "?"}`,
+                      description: "BASEBLOX build/brick",
                       image: tokenImageURI(contractState.nextTokenId?.toString() || "?"),
                       external_url: "https://ethblox.art",
                       attributes: [
@@ -1230,8 +1230,8 @@ export function MintDebugClient() {
   const specKey = generateSpecKey(debugData.baseWidth, debugData.baseDepth, mintDensity)
   const componentsHash = generateComponentsHash(componentPayload.ids)
   return JSON.stringify({
-    name: debugData.buildName || `ETHBLOX #${contractState.nextTokenId?.toString() || "?"}`,
-    description: "ETHBLOX build/brick",
+    name: debugData.buildName || `BASEBLOX #${contractState.nextTokenId?.toString() || "?"}`,
+    description: "BASEBLOX build/brick",
     image: tokenImageURI(contractState.nextTokenId?.toString() || "?"),
     external_url: "https://ethblox.art",
     attributes: [
