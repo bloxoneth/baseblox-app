@@ -49,7 +49,7 @@ function jsonAttr(trait_type, value) {
   return { trait_type, value };
 }
 
-function buildMetadata(build, tokenId, appBaseUrl, imageBaseUri) {
+function buildMetadata(build, tokenId, appBaseUrl) {
   const kind = Number(build?.kind ?? 0);
   const kindLabel = kind === 0 ? "Brick" : kind === 2 ? "Collectors Edition" : "Build";
   const w = Number(build?.brickWidth ?? build?.baseWidth ?? 1);
@@ -95,7 +95,7 @@ function buildMetadata(build, tokenId, appBaseUrl, imageBaseUri) {
   return {
     name,
     description: `BASEBLOX ${kindLabel} - ${w}x${d} density ${density}`,
-    image: `${imageBaseUri}/${tokenId}.png`,
+    image: `${appBaseUrl}/api/builds/image/${tokenId}`,
     animation_url: `${appBaseUrl}/viewer/${tokenId}`,
     external_url: `${appBaseUrl}/explore/${tokenId}`,
     attributes,
@@ -170,7 +170,6 @@ async function main() {
   const chainId = String(process.env.NEXT_PUBLIC_CHAIN_ID || "84532");
   const redisPrefix = process.env.REDIS_KEY_PREFIX || "";
   const appBaseUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_APP_ORIGIN || "https://ethblox.art").replace(/\/+$/, "");
-  const imageBaseUri = process.env.IMAGE_BASE_URI || process.env.NEXT_PUBLIC_IMAGE_BASE_URI || "ipfs://bafybeibnk4kq7mesrs7wtwi2ypwlnxhazoqkwgoycol55n64tqseox2q2a";
 
   const buildNft = process.env.NEXT_PUBLIC_BUILDNFT_ADDRESS;
   const rpcUrl = process.env.BASE_SEPOLIA_RPC_URL || process.env.NEXT_PUBLIC_RPC_URL;
@@ -232,7 +231,7 @@ async function main() {
     if (!buildId) continue;
     const build = await redis.get(style.build(String(buildId)));
     if (!build || typeof build !== "object") continue;
-    const metadata = buildMetadata(build, String(tokenId), appBaseUrl, imageBaseUri);
+    const metadata = buildMetadata(build, String(tokenId), appBaseUrl);
     fs.writeFileSync(path.join(outDir, `${tokenId}.json`), JSON.stringify(metadata, null, 2));
     written++;
   }

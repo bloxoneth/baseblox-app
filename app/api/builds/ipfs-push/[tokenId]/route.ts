@@ -1,7 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { ethers } from "ethers"
 import { redis } from "@/lib/redis"
-import { tokenImageURI } from "@/lib/contracts/ethblox-contracts"
 import { rk } from "@/lib/redis-keys"
 import type { Build } from "@/lib/types"
 import { CONTRACTS, RPC_URL } from "@/lib/contracts/ethblox-contracts"
@@ -258,7 +257,7 @@ async function buildMetadataForToken(tokenId: string) {
   return {
     name: normalizedName,
     description: `BASEBLOX ${kindLabel} - ${w}x${d} density ${density}`,
-    image: tokenImageURI(tokenId),
+    image: `${appBaseUrl}/api/builds/image/${tokenId}`,
     animation_url: `${appBaseUrl}/viewer/${tokenId}`,
     external_url: `${appBaseUrl}/explore/${tokenId}`,
     attributes,

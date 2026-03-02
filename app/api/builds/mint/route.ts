@@ -5,7 +5,6 @@ import { validateBrickParams, computeSpecKey, VALID_DENSITIES } from "@/lib/bric
 import { normalizeBrickKey } from "@/data/bricks"
 import { rk } from "@/lib/redis-keys"
 import type { Build } from "@/lib/types"
-import { tokenImageURI } from "@/lib/contracts/ethblox-contracts"
 import { CONTRACTS, RPC_URL } from "@/lib/contracts/ethblox-contracts"
 
 const IPFS_API_TOKEN = process.env.PINATA_JWT || process.env.LIGHTHOUSE_API_KEY
@@ -502,7 +501,7 @@ function buildMetadataFromBuild(build: Build) {
   return {
     name: normalizedName,
     description: `BASEBLOX ${kindLabel} - ${w}x${d} density ${density}`,
-    image: tokenImageURI(tokenId),
+    image: `${appBaseUrl}/api/builds/image/${tokenId}`,
     animation_url: `${appBaseUrl}/viewer/${tokenId}`,
     external_url: `${appBaseUrl}/explore/${tokenId}`,
     attributes,

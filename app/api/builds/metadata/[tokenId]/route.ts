@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { ethers } from "ethers"
 import { redis } from "@/lib/redis"
 import { rk } from "@/lib/redis-keys"
-import { BUILD_NFT_ABI, CONTRACTS, RPC_URL, tokenImageURI } from "@/lib/contracts/ethblox-contracts"
+import { BUILD_NFT_ABI, CONTRACTS, RPC_URL } from "@/lib/contracts/ethblox-contracts"
 import type { Build } from "@/lib/types"
 
 export async function GET(
@@ -108,7 +108,7 @@ export async function GET(
     return NextResponse.json({
       name,
       description: `BASEBLOX ${kindLabel} - ${width}x${depth} density ${density}`,
-      image: tokenImageURI(id),
+      image: `${appBaseUrl}/api/builds/image/${id}`,
       animation_url: `${appBaseUrl}/viewer/${id}`,
       external_url: `${appBaseUrl}/explore/${id}`,
       attributes,
