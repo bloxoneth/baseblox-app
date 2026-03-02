@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { redis } from "@/lib/redis"
+import { rk, rpat } from "@/lib/redis-keys"
 import type { Build } from "@/lib/types"
 
 // GET /api/builds - List all public builds or user's builds
@@ -8,7 +9,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const walletAddress = searchParams.get("wallet")
 
-    const keys = await redis.keys("build:*")
+    const keys = await redis.keys(rpat("build:*"))
 
     if (keys.length === 0) {
       return NextResponse.json([])
@@ -72,15 +73,15 @@ export async function POST(request: NextRequest) {
       }
 
       // Store in Upstash Redis
-      await redis.set(`build:${build.id}`, build)
+      await redis.set(rk(`build:${build.id}`), build)
 
       if (buildHash) {
-        await redis.set(`hash:${buildHash}`, build.id)
+        await redis.set(rk(`hash:${buildHash}`), build.id)
       }
 
       // Add to public gallery index (sorted by timestamp)
       const timestamp = new Date(build.created).getTime()
-      await redis.zadd("builds:public", { score: timestamp, member: build.id })
+      await redis.zadd(rk("builds:public"), { score: timestamp, member: build.id })
 
       return NextResponse.json({ success: true, buildId: build.id, buildHash }, { status: 201 })
     }
@@ -113,7 +114,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Save to Redis with 30 day expiration
-    await redis.set(`build:${id}`, build, { ex: 60 * 60 * 24 * 30 })
+    await redis.set(rk(`build:${id}`), build, { ex: 60 * 60 * 24 * 30 })
 
     return NextResponse.json({ success: true, build }, { status: 201 })
   } catch (error) {

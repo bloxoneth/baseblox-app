@@ -171,14 +171,21 @@ function CollapsibleSection({
 /* ────────── Main component ────────── */
 
 export function TokenDetailClient({ tokenId }: { tokenId: string }) {
+  const [loadTruth, setLoadTruth] = useState(false)
   const [licenseActionLoading, setLicenseActionLoading] = useState<"register" | "buy" | null>(null)
   const [licenseActionError, setLicenseActionError] = useState<string | null>(null)
   const explorerBase = process.env.NEXT_PUBLIC_BLOCK_EXPLORER_URL ?? "https://sepolia.basescan.org"
   const networkName = process.env.NEXT_PUBLIC_NETWORK_NAME ?? "Base Sepolia"
   const { account, isConnected, connect, switchChain } = useMetaMask()
 
+  // Defer chain/IPFS fetch slightly so Redis-backed app data paints first.
+  React.useEffect(() => {
+    const t = setTimeout(() => setLoadTruth(true), 80)
+    return () => clearTimeout(t)
+  }, [])
+
   const { data: onchainData, isLoading: onchainLoading } = useSWR(
-    `/api/builds/onchain/${tokenId}`,
+    loadTruth ? `/api/builds/onchain/${tokenId}` : null,
     fetcher,
     { revalidateOnFocus: false }
   )
@@ -198,10 +205,10 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
     { revalidateOnFocus: false }
   )
 
-  const isLoading = onchainLoading
+  const isLoading = appLoading && onchainLoading && !appData
   const basescanURL = `${explorerBase}/token/${CONTRACTS.BUILD_NFT}?a=${tokenId}`
   const previewBricks = appData?.bricks && appData.bricks.length > 0 ? appData.bricks : undefined
-  const previewHash = onchainData?.onchain?.geometryHash ?? ""
+  const previewHash = appData?.geometryHash || appData?.buildHash || onchainData?.onchain?.geometryHash || ""
 
   if (isLoading) {
     return (
@@ -269,12 +276,12 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
     return !["kind", "density", "mass", "geometry hash", "geometryhash", "width", "depth"].includes(k)
   })
 
-  const name = ipfsMetadata?.name || onchain?.name || `Build #${tokenId}`
+  const name = appData?.name || ipfsMetadata?.name || onchain?.name || `Build #${tokenId}`
   const description = ipfsMetadata?.description || null
-  const kindRaw = onchain?.kind
+  const kindRaw = typeof onchain?.kind === "number" ? onchain.kind : appData?.kind
   const kindLabel = kindRaw === 0 ? "Brick" : kindRaw > 0 ? "Build" : "--"
   const tokenExistsOnchain = onchain?.exists !== false
-  const tokenMissing = !tokenExistsOnchain
+  const tokenMissing = Boolean(onchainData && !onchainLoading && !tokenExistsOnchain)
 
   const handleRegisterLicense = async () => {
     try {
@@ -399,7 +406,7 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
               {name}
             </h1>
             <p className="text-xs text-[hsl(var(--ethblox-text-tertiary))] mt-1 font-mono">
-              Data from chain + IPFS
+              {onchainLoading ? "Showing app cache, syncing chain + IPFS..." : "Data from app + chain + IPFS"}
             </p>
           </div>
 
@@ -659,15 +666,41 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
 /* ────────── IPFS Push Section ────────── */
 
 function IPFSPushSection({ tokenId }: { tokenId: string }) {
+  const { account, isConnected, connect } = useMetaMask()
   const [pushing, setPushing] = useState(false)
+  const [syncing, setSyncing] = useState(false)
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState<any>(null)
+  const [syncResult, setSyncResult] = useState<any>(null)
+
+  const signedHeaders = async (prefix: "BASEBLOX_IPFS_PUSH" | "BASEBLOX_SYNC") => {
+    if (typeof window === "undefined" || !(window as any).ethereum) {
+      throw new Error("Wallet provider not available")
+    }
+    const provider = new ethers.BrowserProvider((window as any).ethereum)
+    await provider.send("eth_requestAccounts", [])
+    const signer = await provider.getSigner()
+    const signerAddress = await signer.getAddress()
+    if (account && signerAddress.toLowerCase() !== account.toLowerCase()) {
+      throw new Error("Wallet account mismatch. Reconnect wallet and retry.")
+    }
+    const message = `${prefix}:${tokenId}`
+    const signature = await signer.signMessage(message)
+    return {
+      "x-owner-address": signerAddress,
+      "x-owner-signature": signature,
+    }
+  }
 
   const handlePreview = async () => {
     setError(null)
     try {
-      const res = await fetch(`/api/builds/ipfs-push/${tokenId}`)
+      if (!isConnected) {
+        await connect()
+      }
+      const headers = await signedHeaders("BASEBLOX_IPFS_PUSH")
+      const res = await fetch(`/api/builds/ipfs-push/${tokenId}`, { headers })
       const data = await res.json()
       if (data.error) {
         setError(data.error)
@@ -684,7 +717,11 @@ function IPFSPushSection({ tokenId }: { tokenId: string }) {
     setError(null)
     setResult(null)
     try {
-      const res = await fetch(`/api/builds/ipfs-push/${tokenId}`, { method: "POST" })
+      if (!isConnected) {
+        await connect()
+      }
+      const headers = await signedHeaders("BASEBLOX_IPFS_PUSH")
+      const res = await fetch(`/api/builds/ipfs-push/${tokenId}`, { method: "POST", headers })
       const data = await res.json()
       if (data.error) {
         setError(data.error)
@@ -698,6 +735,29 @@ function IPFSPushSection({ tokenId }: { tokenId: string }) {
     }
   }
 
+  const handleSync = async () => {
+    setSyncing(true)
+    setError(null)
+    setSyncResult(null)
+    try {
+      if (!isConnected) {
+        await connect()
+      }
+      const headers = await signedHeaders("BASEBLOX_SYNC")
+      const res = await fetch(`/api/builds/sync/${tokenId}`, { method: "POST", headers })
+      const data = await res.json()
+      if (data.error) {
+        setError(data.error)
+      } else {
+        setSyncResult(data)
+      }
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   return (
     <CollapsibleSection
       title="IPFS Metadata"
@@ -705,7 +765,7 @@ function IPFSPushSection({ tokenId }: { tokenId: string }) {
     >
       <div className="space-y-3 mt-3">
         <p className="text-xs text-[hsl(var(--ethblox-text-secondary))]">
-          Generate and push ERC-721 metadata JSON to IPFS via Lighthouse for this token.
+          Generate and push ERC-721 metadata JSON to IPFS via Pinata for this token.
         </p>
 
         <div className="flex gap-2">
@@ -716,6 +776,22 @@ function IPFSPushSection({ tokenId }: { tokenId: string }) {
             className="text-xs bg-transparent"
           >
             Preview Metadata
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSync}
+            disabled={syncing}
+            className="text-xs bg-transparent"
+          >
+            {syncing ? (
+              <>
+                <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+                Syncing...
+              </>
+            ) : (
+              "Sync Redis"
+            )}
           </Button>
           <Button
             size="sm"
@@ -764,6 +840,12 @@ function IPFSPushSection({ tokenId }: { tokenId: string }) {
                 View on IPFS<ExternalLink className="h-3 w-3" />
               </a>
             </DetailRow>
+          </div>
+        )}
+
+        {syncResult && (
+          <div className="text-xs font-mono text-[hsl(var(--ethblox-accent-cyan))] bg-[hsl(var(--ethblox-accent-cyan)/0.1)] px-3 py-2 rounded">
+            Redis synced for token #{tokenId}
           </div>
         )}
 

@@ -42,6 +42,15 @@ export type Build = {
   }
   // Timestamps
   timestamp?: number
+  // IPFS sync status
+  ipfsPending?: boolean
+  ipfsCid?: string
+  ipfsUri?: string
+  ipfsGatewayUrl?: string
+  ipfsSyncedAt?: string
+  ipfsLastError?: string
+  ipfsLastAttemptAt?: string
+  onchainMinted?: boolean
 }
 
 export type BuildMetadata = {

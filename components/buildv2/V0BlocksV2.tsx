@@ -486,7 +486,7 @@ onRotateNFT={handleRotateNFT}
   
   {/* Parts Used - inline in top bar after save/load buttons */}
   {(placedNFTs.length > 0 || brickCounts.length > 0) && (
-        <div className="absolute top-[calc(3.5rem+0.5rem)] left-[180px] md:left-[220px] z-40">
+        <div className="absolute top-[calc(3.5rem+0.5rem)] right-3 md:right-4 z-40">
           <div className="relative">
             <button
               onClick={() => setIsNFTCounterExpanded(!isNFTCounterExpanded)}
@@ -505,7 +505,7 @@ onRotateNFT={handleRotateNFT}
 
             {/* Dropdown */}
             {isNFTCounterExpanded && (
-              <div className="absolute top-full left-0 mt-1 bg-[hsl(210,11%,18%)] backdrop-blur-lg rounded-lg border border-[hsl(210,8%,28%)] shadow-2xl overflow-hidden min-w-[180px]">
+              <div className="absolute top-full right-0 mt-1 bg-[hsl(210,11%,18%)] backdrop-blur-lg rounded-lg border border-[hsl(210,8%,28%)] shadow-2xl overflow-hidden min-w-[180px]">
                 <div className="px-3 py-2 max-h-48 overflow-y-auto">
                   <div className="space-y-1.5">
                     {/* NFT Builds */}

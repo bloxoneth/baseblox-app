@@ -24,6 +24,8 @@ import {
   FEE_PER_MINT,
   BUILD_KIND,
   BASE_METADATA_URI,
+  MINT_GAS_LIMIT,
+  MINT_GAS_LIMIT_FORCE,
   tokenMetadataURI,
   tokenImageURI,
   getBloxBalance,
@@ -131,12 +133,13 @@ function detectKind(
     return BUILD_KIND.BRICK
   }
 
-  // Has NFT components = build
-  if (composition && Object.keys(composition).length > 0) return BUILD_KIND.BUILD
   if (brickCount <= 1) return BUILD_KIND.BRICK
 
   // Multiple bricks without explicit composition can still be a brick if they form one rectangle.
   if (isLikelyBrickGeometry(debugData)) return BUILD_KIND.BRICK
+
+  // Has components and not a rectangular single-layer brick = build.
+  if (composition && Object.keys(composition).length > 0) return BUILD_KIND.BUILD
 
   return BUILD_KIND.BUILD
 }
@@ -246,7 +249,6 @@ export function MintDebugClient() {
     if (Object.keys(explicitCompositionMap).length > 0) return explicitCompositionMap
 
     const kind = detectKind(searchParams, debugData.bricks.length, explicitCompositionMap, debugData)
-    if (kind === BUILD_KIND.BRICK) return explicitCompositionMap
     if (!Array.isArray(debugData.bricks) || debugData.bricks.length === 0) return explicitCompositionMap
 
     const densFromUrl = Number(searchParams.get("density") || "")
@@ -541,17 +543,32 @@ export function MintDebugClient() {
       const area = debugData.baseWidth * debugData.baseDepth
       const isPrimitive1x1 = area === 1
       if (!isPrimitive1x1) {
-        const baseTokenId = baseBrickTokensByDensity[String(mintDensity)]
-        if (!baseTokenId) {
-          setMintError(`Missing base component 1x1-D${mintDensity}. Mint that primitive first, then mint ${debugData.baseWidth}x${debugData.baseDepth}-D${mintDensity}.`)
-          return null
+        const validComponents = Object.entries(compositionMap)
+          .filter(([id, data]) => Number(id) > 0 && data.count > 0)
+          .sort((a, b) => Number(a[0]) - Number(b[0]))
+        if (validComponents.length > 0) {
+          componentIds = validComponents.map(([id]) => BigInt(id))
+          componentCounts = validComponents.map(([, data]) => BigInt(data.count))
+        } else {
+          const isSingleBrickDraft = Array.isArray(debugData.bricks) && debugData.bricks.length <= 1
+          if (!isSingleBrickDraft) {
+            setMintError("Could not resolve placed brick components to token IDs yet. Wait a second and retry diagnostics/mint.")
+            return null
+          }
+          // Fallback for pure brick-mint modal flow where no explicit component map is present.
+          const baseTokenId = baseBrickTokensByDensity[String(mintDensity)]
+          if (!baseTokenId) {
+            setMintError(`Missing base component 1x1-D${mintDensity}. Mint that primitive first, then mint ${debugData.baseWidth}x${debugData.baseDepth}-D${mintDensity}.`)
+            return null
+          }
+          componentIds = [BigInt(baseTokenId)]
+          componentCounts = [BigInt(area)]
         }
-        componentIds = [BigInt(baseTokenId)]
-        componentCounts = [BigInt(area)]
       }
     } else if (hasComponents) {
       const validComponents = Object.entries(compositionMap)
         .filter(([id, data]) => Number(id) > 0 && data.count > 0)
+        .sort((a, b) => Number(a[0]) - Number(b[0]))
       componentIds = validComponents.map(([id]) => BigInt(id))
       componentCounts = validComponents.map(([, data]) => BigInt(data.count))
     }
@@ -659,7 +676,7 @@ export function MintDebugClient() {
   }
 
   // Handle mint - always sends with gasLimit to bypass estimateGas failures
-  // forceSend uses higher gasLimit (1M vs 500k)
+  // forceSend uses higher configured gas limit
   const handleMint = async (forceSend = false) => {
     if (!isConnected || !account || !debugData || !generatedHash) return
     setMinting(true)
@@ -687,7 +704,7 @@ export function MintDebugClient() {
         return
       }
 
-      if (params.kind !== BUILD_KIND.BRICK && params.componentBuildIds.length > 0) {
+      if (params.componentBuildIds.length > 0) {
         const status = await getComponentLicenseStatus(provider, account, params.componentBuildIds)
         if (status.missingComponentBuildIds.length > 0) {
           if (!autoBuyMissingLicenses) {
@@ -847,6 +864,23 @@ export function MintDebugClient() {
     if (kind === BUILD_KIND.BRICK) {
       const area = debugData.baseWidth * debugData.baseDepth
       if (area === 1) return { ids: [] as string[], counts: [] as number[] }
+      const validComponents = Object.entries(compositionMap)
+        .filter(([id, data]) => Number(id) > 0 && data.count > 0)
+        .sort((a, b) => Number(a[0]) - Number(b[0]))
+      if (validComponents.length > 0) {
+        return {
+          ids: validComponents.map(([id]) => String(id)),
+          counts: validComponents.map(([, data]) => data.count),
+        }
+      }
+      const isSingleBrickDraft = Array.isArray(debugData.bricks) && debugData.bricks.length <= 1
+      if (!isSingleBrickDraft) {
+        return {
+          ids: [] as string[],
+          counts: [] as number[],
+          error: "Could not resolve placed brick components to token IDs yet.",
+        }
+      }
       const baseTokenId = baseBrickTokensByDensity[String(mintDensity)]
       if (!baseTokenId) {
         return { ids: [] as string[], counts: [] as number[], error: `Missing base 1x1-D${mintDensity}` }
@@ -1600,7 +1634,7 @@ export function MintDebugClient() {
                     ? "Buying Licenses..."
                     : minting
                       ? "Sending TX..."
-                      : `Mint NFT (${ethers.formatEther(FEE_PER_MINT)} ETH + 500k gas)`}
+                      : `Mint NFT (${ethers.formatEther(FEE_PER_MINT)} ETH + ${MINT_GAS_LIMIT.toString()} gas)`}
                 </Button>
                 <Button
                   onClick={() => handleMint(true)}
@@ -1609,7 +1643,7 @@ export function MintDebugClient() {
                   className="w-full border-red-500/50 text-red-400 bg-transparent hover:bg-red-500/10"
                 >
                   {(minting || buyingLicenses) && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                  Force Send (1M gas limit)
+                  {`Force Send (${MINT_GAS_LIMIT_FORCE.toString()} gas limit)`}
                 </Button>
                 <p className="text-xs text-[hsl(var(--ethblox-text-tertiary))] text-center">
                   If auto-buy is ON, missing component licenses are purchased before mint.

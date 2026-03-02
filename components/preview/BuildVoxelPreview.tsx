@@ -56,15 +56,15 @@ function BrickMesh({
           <meshPhysicalMaterial
             color={glassColor}
             transparent
-            opacity={0.4}
-            roughness={0.05}
+            opacity={0.62}
+            roughness={0.03}
             metalness={0}
-            transmission={0.75}
-            thickness={0.6}
+            transmission={0.9}
+            thickness={0.45}
             ior={1.45}
-            envMapIntensity={1.2}
+            envMapIntensity={1.55}
             clearcoat={1}
-            clearcoatRoughness={0.08}
+            clearcoatRoughness={0.04}
           />
         </mesh>
         {studs.map((pos, idx) => (
@@ -73,15 +73,15 @@ function BrickMesh({
             <meshPhysicalMaterial
               color={glassColor}
               transparent
-              opacity={0.5}
-              roughness={0.05}
+              opacity={0.68}
+              roughness={0.03}
               metalness={0}
-              transmission={0.8}
-              thickness={0.3}
+              transmission={0.92}
+              thickness={0.25}
               ior={1.45}
-              envMapIntensity={1.2}
+              envMapIntensity={1.6}
               clearcoat={1}
-              clearcoatRoughness={0.08}
+              clearcoatRoughness={0.04}
             />
           </mesh>
         ))}
@@ -121,12 +121,12 @@ function StudField({ radius = 18, spacing = 1.1 }: { radius?: number; spacing?: 
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.62, 0]} receiveShadow>
         <circleGeometry args={[radius * spacing + 2, 80]} />
-        <meshStandardMaterial color="#040b16" roughness={0.92} metalness={0} />
+        <meshStandardMaterial color="#243248" roughness={0.85} metalness={0.04} />
       </mesh>
       {studs.map((p, i) => (
         <mesh key={i} position={p as [number, number, number]} receiveShadow>
           <sphereGeometry args={[0.19, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2]} />
-          <meshStandardMaterial color={i % 7 === 0 ? "#d6dde8" : "#091c3d"} roughness={0.28} metalness={0.22} />
+          <meshStandardMaterial color={i % 7 === 0 ? "#f5f8ff" : "#3c5a84"} roughness={0.22} metalness={0.28} />
         </mesh>
       ))}
     </group>
@@ -212,7 +212,7 @@ export function BuildVoxelPreview({
   const backupImage = imageUrl || (tokenId !== undefined && tokenId !== null ? tokenImageGatewayURL(tokenId) : "")
 
   const fallbackNode = (
-    <div className={`${className ?? "w-full h-full"} bg-[hsl(var(--ethblox-bg))]`}>
+    <div className={`${className ?? "w-full h-full"} bg-[hsl(var(--ethblox-surface))]`}>
       {!imageFailed && backupImage ? (
         <img
           src={backupImage}
@@ -245,11 +245,11 @@ export function BuildVoxelPreview({
           gl.toneMappingExposure = sceneMode === "marketplace" ? 1.06 : 1
         }}
       >
-        <color attach="background" args={sceneMode === "marketplace" ? ["#070d1a"] : ["#111927"]} />
-        <ambientLight intensity={sceneMode === "marketplace" ? 0.38 : 0.62} />
-        <hemisphereLight intensity={sceneMode === "marketplace" ? 0.45 : 0.25} color="#d7e4ff" groundColor="#0a1022" />
-        <directionalLight position={[9, 12, 8]} intensity={sceneMode === "marketplace" ? 1.35 : 1.05} castShadow />
-        <pointLight position={[-6, 5, -3]} intensity={sceneMode === "marketplace" ? 0.65 : 0.25} color="#8cc4ff" />
+        <color attach="background" args={sceneMode === "marketplace" ? ["#29364a"] : ["#36465c"]} />
+        <ambientLight intensity={sceneMode === "marketplace" ? 0.75 : 0.92} />
+        <hemisphereLight intensity={sceneMode === "marketplace" ? 0.7 : 0.5} color="#eef5ff" groundColor="#3f4d63" />
+        <directionalLight position={[9, 12, 8]} intensity={sceneMode === "marketplace" ? 1.55 : 1.3} castShadow />
+        <pointLight position={[-6, 5, -3]} intensity={sceneMode === "marketplace" ? 0.85 : 0.55} color="#cfe7ff" />
         {sceneMode === "marketplace" && <StudField />}
         <group>
           {voxels.map((b, i) => <BrickMesh key={i} brick={b} glass={transparentBricks} showStuds={showStuds} />)}

@@ -1,7 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { ethers } from "ethers"
 import { redis } from "@/lib/redis"
 import { tokenImageURI } from "@/lib/contracts/ethblox-contracts"
+import { rk } from "@/lib/redis-keys"
 import type { Build } from "@/lib/types"
+import { CONTRACTS, RPC_URL } from "@/lib/contracts/ethblox-contracts"
 
 const IPFS_API_TOKEN = process.env.PINATA_JWT || process.env.LIGHTHOUSE_API_KEY
 const IPFS_UPLOAD_URL =
@@ -12,16 +15,40 @@ const IPFS_GATEWAY_BASE = process.env.PINATA_GATEWAY_BASE || "https://gateway.pi
 const IPFS_UPLOAD_TIMEOUT_MS = Number(process.env.IPFS_UPLOAD_TIMEOUT_MS || "25000")
 const IPFS_UPLOAD_RETRIES = Number(process.env.IPFS_UPLOAD_RETRIES || "4")
 const ADMIN_TOKEN = process.env.ADMIN_RESET_TOKEN
+const OWNER_AUTH_PREFIX = "BASEBLOX_IPFS_PUSH"
 
-function authorize(request: NextRequest): string | null {
-  if (!ADMIN_TOKEN) return "ADMIN_RESET_TOKEN not configured"
+async function authorize(request: NextRequest, tokenId: string): Promise<string | null> {
+  // Admin override
+  if (ADMIN_TOKEN) {
+    const authHeader = request.headers.get("authorization") || ""
+    const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : ""
+    const token = bearer || request.headers.get("x-admin-token") || ""
+    if (token && token === ADMIN_TOKEN) return null
+  }
 
-  const authHeader = request.headers.get("authorization") || ""
-  const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : ""
-  const token = bearer || request.headers.get("x-admin-token") || ""
+  // Owner signed-message auth
+  const ownerAddress = (request.headers.get("x-owner-address") || "").trim()
+  const ownerSignature = (request.headers.get("x-owner-signature") || "").trim()
+  if (!ownerAddress || !ownerSignature) {
+    return "Missing auth: provide admin token or owner signature headers"
+  }
 
-  if (!token) return "Missing admin token"
-  if (token !== ADMIN_TOKEN) return "Invalid admin token"
+  try {
+    const message = `${OWNER_AUTH_PREFIX}:${tokenId}`
+    const recovered = ethers.verifyMessage(message, ownerSignature)
+    if (recovered.toLowerCase() !== ownerAddress.toLowerCase()) {
+      return "Invalid owner signature"
+    }
+    const provider = new ethers.JsonRpcProvider(RPC_URL)
+    const contract = new ethers.Contract(CONTRACTS.BUILD_NFT, ["function ownerOf(uint256) view returns (address)"], provider)
+    const onchainOwner = String(await contract.ownerOf(BigInt(tokenId)))
+    if (onchainOwner.toLowerCase() !== ownerAddress.toLowerCase()) {
+      return "Signer is not current token owner"
+    }
+  } catch (err: any) {
+    return err?.shortMessage || err?.message || "Owner authorization failed"
+  }
+
   return null
 }
 
@@ -62,12 +89,12 @@ export async function GET(
   request: NextRequest,
   context: { params: Promise<{ tokenId: string }> }
 ) {
-  const authError = authorize(request)
+  const { tokenId } = await context.params
+  const authError = await authorize(request, tokenId)
   if (authError) {
-    return NextResponse.json({ error: authError }, { status: authError.includes("configured") ? 500 : 401 })
+    return NextResponse.json({ error: authError }, { status: 401 })
   }
 
-  const { tokenId } = await context.params
   const metadata = await buildMetadataForToken(tokenId)
   if (!metadata) {
     return NextResponse.json({ error: "No app data found for token" }, { status: 404 })
@@ -80,12 +107,11 @@ export async function POST(
   request: NextRequest,
   context: { params: Promise<{ tokenId: string }> }
 ) {
-  const authError = authorize(request)
-  if (authError) {
-    return NextResponse.json({ error: authError }, { status: authError.includes("configured") ? 500 : 401 })
-  }
-
   const { tokenId } = await context.params
+  const authError = await authorize(request, tokenId)
+  if (authError) {
+    return NextResponse.json({ error: authError }, { status: 401 })
+  }
 
   if (!IPFS_API_TOKEN) {
     return NextResponse.json(
@@ -94,9 +120,9 @@ export async function POST(
     )
   }
 
-  const metadata = await buildMetadataForToken(tokenId)
-  if (!metadata) {
-    return NextResponse.json({ error: "No app data found for token" }, { status: 404 })
+    const metadata = await buildMetadataForToken(tokenId)
+    if (!metadata) {
+      return NextResponse.json({ error: "No app data found for token" }, { status: 404 })
   }
 
   try {
@@ -120,6 +146,25 @@ export async function POST(
       )
     }
 
+    const buildId = await redis.get<string>(rk(`token:${tokenId}`))
+    if (buildId) {
+      const build = await redis.get<Build>(rk(`build:${buildId}`))
+      if (build) {
+        const now = new Date().toISOString()
+        const updatedBuild: Build = {
+          ...build,
+          ipfsPending: false,
+          ipfsCid: String(cid),
+          ipfsUri: `ipfs://${cid}/${tokenId}.json`,
+          ipfsGatewayUrl: `${IPFS_GATEWAY_BASE}/${cid}/${tokenId}.json`,
+          ipfsSyncedAt: now,
+          ipfsLastAttemptAt: now,
+          ipfsLastError: undefined,
+        }
+        await redis.set(rk(`build:${buildId}`), updatedBuild)
+      }
+    }
+
     return NextResponse.json({
       success: true,
       tokenId,
@@ -128,6 +173,22 @@ export async function POST(
       metadata,
     })
   } catch (err: any) {
+    try {
+      const buildId = await redis.get<string>(rk(`token:${tokenId}`))
+      if (buildId) {
+        const build = await redis.get<Build>(rk(`build:${buildId}`))
+        if (build) {
+          await redis.set(rk(`build:${buildId}`), {
+            ...build,
+            ipfsPending: true,
+            ipfsLastAttemptAt: new Date().toISOString(),
+            ipfsLastError: err?.message || "IPFS push failed",
+          } satisfies Build)
+        }
+      }
+    } catch {
+      // Do not mask root error if status update fails.
+    }
     return NextResponse.json(
       { error: `IPFS push failed: ${err.message}` },
       { status: 500 }
@@ -138,10 +199,10 @@ export async function POST(
 // Build ERC-721 compliant metadata from Redis app data
 async function buildMetadataForToken(tokenId: string) {
   // Fetch build data from Redis
-  const buildId = await redis.get<string>(`token:${tokenId}`)
+  const buildId = await redis.get<string>(rk(`token:${tokenId}`))
   if (!buildId) return null
 
-  const build = await redis.get<Build>(`build:${buildId}`)
+  const build = await redis.get<Build>(rk(`build:${buildId}`))
   if (!build) return null
 
   const kind = build.kind ?? 0

@@ -28,27 +28,6 @@ const CHAIN_READ_ABI = [
   "function brickSpecOf(uint256 tokenId) view returns (uint8 width, uint8 depth, uint16 density)",
 ]
 
-async function findBaseBrickTokenOnChain(targetDensity: number): Promise<string | null> {
-  const provider = new ethers.JsonRpcProvider(RPC_URL)
-  const contract = new ethers.Contract(CONTRACTS.BUILD_NFT, CHAIN_READ_ABI, provider)
-  const nextTokenId = Number(await contract.nextTokenId())
-  for (let tokenId = 1; tokenId < nextTokenId; tokenId++) {
-    try {
-      const exists = Boolean(await contract.exists(BigInt(tokenId)))
-      if (!exists) continue
-      const kind = Number(await contract.kindOf(BigInt(tokenId)))
-      if (kind !== 0) continue
-      const [w, d, den] = await contract.brickSpecOf(BigInt(tokenId))
-      if (Number(w) === 1 && Number(d) === 1 && Number(den) === Number(targetDensity)) {
-        return String(tokenId)
-      }
-    } catch {
-      // Ignore gaps/reverts and continue scan.
-    }
-  }
-  return null
-}
-
 async function uploadToIpfsWithRetry(formDataFactory: () => FormData) {
   let lastError: Error | null = null
   for (let attempt = 1; attempt <= IPFS_UPLOAD_RETRIES; attempt++) {
@@ -117,97 +96,118 @@ export async function POST(request: NextRequest) {
       }
 
       // Duplicate check: has this spec already been minted?
+      // Validate Redis index against on-chain state so stale cache data cannot block
+      // a mint that already succeeded on-chain.
       const specKey = computeSpecKey(brickW, brickD, density)
       const brickKey = normalizeBrickKey(brickW, brickD, density)
       const existingTokenId = await redis.get(rk(`brick:spec:${brickKey}`))
       if (existingTokenId && String(existingTokenId) !== String(tokenId)) {
-        return NextResponse.json(
-          { error: `Brick ${brickKey} already minted as token #${existingTokenId}`, specKey },
-          { status: 409 },
-        )
+        const provider = new ethers.JsonRpcProvider(RPC_URL)
+        const contract = new ethers.Contract(CONTRACTS.BUILD_NFT, CHAIN_READ_ABI, provider)
+        const existingId = BigInt(String(existingTokenId))
+        let redisIndexIsValidConflict = false
+        try {
+          const exists = Boolean(await contract.exists(existingId))
+          if (exists) {
+            const existingKind = Number(await contract.kindOf(existingId))
+            if (existingKind === 0) {
+              const [ew, ed, eden] = await contract.brickSpecOf(existingId)
+              const existingBrickKey = normalizeBrickKey(Number(ew), Number(ed), Number(eden))
+              redisIndexIsValidConflict = existingBrickKey === brickKey
+            }
+          }
+        } catch {
+          redisIndexIsValidConflict = false
+        }
+
+        if (redisIndexIsValidConflict) {
+          return NextResponse.json(
+            { error: `Brick ${brickKey} already minted as token #${existingTokenId}`, specKey },
+            { status: 409 },
+          )
+        }
+
+        // Redis mapping is stale/inconsistent for this spec; clear and continue.
+        await redis.del(rk(`brick:spec:${brickKey}`))
       }
 
       // Component model for kind=0:
       // - 1x1 is primitive (no components)
-      // - Any larger rectangle must be composed from the matching 1x1 density token.
+      // - Any larger rectangle can be composed from any brick components
+      //   as long as total component area matches width*depth and density matches.
       if (area === 1) {
         canonicalComponentBuildIds = []
         canonicalComponentCounts = []
         canonicalComposition = {}
       } else {
-        const baseBrickKey = normalizeBrickKey(1, 1, density)
-        let baseTokenId = await redis.get<string>(rk(`brick:spec:${baseBrickKey}`))
-
         const incomingIds = (Array.isArray(body.componentBuildIds) ? body.componentBuildIds : []).map(String)
         const incomingCounts = (Array.isArray(body.componentCounts) ? body.componentCounts : []).map((n) => Number(n))
-        const expectedCount = Number(area)
-
-        // Redis can lag or be empty in test resets. Accept the incoming base component
-        // when it provably matches a 1x1 brick of the same density on-chain.
-        if (!baseTokenId && incomingIds.length === 1 && incomingCounts.length === 1 && incomingCounts[0] === expectedCount) {
-          try {
-            const provider = new ethers.JsonRpcProvider(RPC_URL)
-            const contract = new ethers.Contract(CONTRACTS.BUILD_NFT, CHAIN_READ_ABI, provider)
-            const candidateId = BigInt(incomingIds[0])
-            const candidateKind = Number(await contract.kindOf(candidateId))
-            const [cw, cd, cden] = await contract.brickSpecOf(candidateId)
-            if (candidateKind === 0 && Number(cw) === 1 && Number(cd) === 1 && Number(cden) === Number(density)) {
-              baseTokenId = incomingIds[0]
-              // Heal Redis index for future requests.
-              await redis.set(rk(`brick:spec:${baseBrickKey}`), String(baseTokenId))
-            }
-          } catch {
-            // Keep validation path below for error reporting.
-          }
-        }
-
-        // Final fallback: scan on-chain minted tokens for the canonical 1x1 at this density,
-        // then heal Redis so subsequent requests are fast.
-        if (!baseTokenId) {
-          const discoveredBaseTokenId = await findBaseBrickTokenOnChain(Number(density))
-          if (discoveredBaseTokenId) {
-            baseTokenId = discoveredBaseTokenId
-            await redis.set(rk(`brick:spec:${baseBrickKey}`), String(baseTokenId))
-          }
-        }
-
-        if (!baseTokenId) {
+        if (incomingIds.length === 0 || incomingIds.length !== incomingCounts.length) {
           return NextResponse.json(
             {
-              error: `Missing base component ${baseBrickKey}. Mint 1x1 first for this density.`,
-              hint: "If this 1x1 already exists on-chain, import/backfill brick spec indexes into Redis.",
-            },
-            { status: 409 },
-          )
-        }
-
-        if (
-          incomingIds.length !== 1 ||
-          incomingCounts.length !== 1 ||
-          String(incomingIds[0]) !== String(baseTokenId) ||
-          incomingCounts[0] !== expectedCount
-        ) {
-          return NextResponse.json(
-            {
-              error: "Invalid brick components for kind=0 rectangle. Expected area x 1x1 of same density.",
-              expected: {
-                componentBuildIds: [String(baseTokenId)],
-                componentCounts: [expectedCount],
-                baseSpec: baseBrickKey,
-              },
+              error: "Invalid brick components for kind=0 rectangle. Provide componentBuildIds/componentCounts.",
             },
             { status: 400 },
           )
         }
 
-        canonicalComponentBuildIds = [String(baseTokenId)]
-        canonicalComponentCounts = [expectedCount]
-        canonicalComposition = {
-          [String(baseTokenId)]: {
-            count: expectedCount,
-            name: baseBrickKey,
-          },
+        // Aggregate + sort component rows (defensive canonicalization).
+        const agg = new Map<string, number>()
+        for (let i = 0; i < incomingIds.length; i++) {
+          const id = incomingIds[i]
+          const count = Number(incomingCounts[i])
+          if (!/^\d+$/.test(id) || Number(id) <= 0 || !Number.isFinite(count) || count <= 0) {
+            return NextResponse.json({ error: "Invalid component ids/counts for brick mint." }, { status: 400 })
+          }
+          agg.set(id, (agg.get(id) ?? 0) + count)
         }
+        const sorted = [...agg.entries()].sort((a, b) => Number(a[0]) - Number(b[0]))
+
+        // Validate against chain truth: each component must be a brick with matching density.
+        const provider = new ethers.JsonRpcProvider(RPC_URL)
+        const contract = new ethers.Contract(CONTRACTS.BUILD_NFT, CHAIN_READ_ABI, provider)
+        let totalAreaFromComponents = 0
+        const compositionObj: Record<string, { count: number; name: string }> = {}
+
+        for (const [componentId, count] of sorted) {
+          const cid = BigInt(componentId)
+          const exists = Boolean(await contract.exists(cid))
+          if (!exists) {
+            return NextResponse.json({ error: `Brick component ${componentId} does not exist on-chain.` }, { status: 400 })
+          }
+          const ck = Number(await contract.kindOf(cid))
+          if (ck !== 0) {
+            return NextResponse.json({ error: `Component ${componentId} is not kind=0 brick.` }, { status: 400 })
+          }
+          const [cw, cd, cden] = await contract.brickSpecOf(cid)
+          if (Number(cden) !== Number(density)) {
+            return NextResponse.json(
+              { error: `Component ${componentId} density mismatch (expected ${density}, got ${Number(cden)}).` },
+              { status: 400 },
+            )
+          }
+          const compArea = Number(cw) * Number(cd)
+          totalAreaFromComponents += compArea * count
+          compositionObj[componentId] = {
+            count,
+            name: normalizeBrickKey(Number(cw), Number(cd), Number(cden)),
+          }
+        }
+
+        if (totalAreaFromComponents !== Number(area)) {
+          return NextResponse.json(
+            {
+              error: "Invalid brick components for kind=0 rectangle. Component area does not match target area.",
+              expectedArea: Number(area),
+              componentArea: totalAreaFromComponents,
+            },
+            { status: 400 },
+          )
+        }
+
+        canonicalComponentBuildIds = sorted.map(([id]) => id)
+        canonicalComponentCounts = sorted.map(([, count]) => count)
+        canonicalComposition = compositionObj
       }
     }
 
@@ -290,6 +290,8 @@ export async function POST(request: NextRequest) {
       // Timestamps
       created: new Date().toISOString(),
       timestamp: Date.now(),
+      onchainMinted: true,
+      ipfsPending: AUTO_IPFS_PUSH_ON_MINT,
     }
 
     // Save full build data
@@ -330,15 +332,37 @@ export async function POST(request: NextRequest) {
               cid,
               gatewayUrl: `${IPFS_GATEWAY_BASE}/${cid}`,
             }
+            mintedBuild.ipfsPending = false
+            mintedBuild.ipfsCid = cid
+            mintedBuild.ipfsUri = `ipfs://${cid}/${tokenId}.json`
+            mintedBuild.ipfsGatewayUrl = `${IPFS_GATEWAY_BASE}/${cid}/${tokenId}.json`
+            mintedBuild.ipfsSyncedAt = new Date().toISOString()
+            mintedBuild.ipfsLastError = undefined
+            mintedBuild.ipfsLastAttemptAt = mintedBuild.ipfsSyncedAt
           }
         } else {
           const errText = await uploadRes.text()
           console.warn(`AUTO_IPFS_PUSH_ON_MINT failed for token ${tokenId}: ${uploadRes.status} ${errText}`)
+          mintedBuild.ipfsPending = true
+          mintedBuild.ipfsLastError = `upload failed: ${uploadRes.status} ${errText}`
+          mintedBuild.ipfsLastAttemptAt = new Date().toISOString()
         }
       } catch (ipfsErr) {
         console.warn(`AUTO_IPFS_PUSH_ON_MINT exception for token ${tokenId}:`, ipfsErr)
+        mintedBuild.ipfsPending = true
+        mintedBuild.ipfsLastError = ipfsErr instanceof Error ? ipfsErr.message : String(ipfsErr)
+        mintedBuild.ipfsLastAttemptAt = new Date().toISOString()
       }
+    } else if (AUTO_IPFS_PUSH_ON_MINT && !IPFS_API_TOKEN) {
+      mintedBuild.ipfsPending = true
+      mintedBuild.ipfsLastError = "PINATA_JWT missing"
+      mintedBuild.ipfsLastAttemptAt = new Date().toISOString()
+    } else {
+      mintedBuild.ipfsPending = false
     }
+
+    // Persist final post-mint status including IPFS sync state.
+    await redis.set(rk(`build:${mintedBuild.id}`), mintedBuild)
 
     const uriCheck = await verifyAndOptionallyAlignTokenURI(String(tokenId))
 

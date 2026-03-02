@@ -485,7 +485,7 @@ export async function simulateMint(
       to: CONTRACTS.BUILD_NFT,
       data: calldata,
       value: FEE_PER_MINT,
-      gasLimit: 500_000n, // Include gas limit to avoid out-of-gas in simulation
+      gasLimit: MINT_GAS_LIMIT, // Match normal mint gas limit to avoid false simulation reverts
     })
     return { success: true, result }
   } catch (err: any) {

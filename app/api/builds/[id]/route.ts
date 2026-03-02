@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { redis } from "@/lib/redis"
+import { rk } from "@/lib/redis-keys"
 import type { Build } from "@/lib/types"
 
 // GET /api/builds/:id - Get a specific build
@@ -7,7 +8,11 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
   try {
     const params = await context.params
     const { id } = params
-    const build = await redis.get<Build>(`build:${id}`)
+    let build = await redis.get<Build>(rk(`build:${id}`))
+    // Legacy fallback for pre-namespace records.
+    if (!build) {
+      build = await redis.get<Build>(`build:${id}`)
+    }
 
     if (!build) {
       return NextResponse.json({ error: "Build not found" }, { status: 404 })
@@ -25,6 +30,7 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
   try {
     const params = await context.params
     const { id } = params
+    await redis.del(rk(`build:${id}`))
     await redis.del(`build:${id}`)
 
     return NextResponse.json({ success: true })

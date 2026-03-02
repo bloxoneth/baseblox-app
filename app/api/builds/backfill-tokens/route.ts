@@ -51,24 +51,44 @@ async function backfill() {
 
         await redis.sadd(rk("minted_tokens"), tokenId)
 
-        const buildId = `build_backfilled_${tokenId}`
+        // Try to preserve an existing richer build record before creating a synthetic one.
+        let buildId = await redis.get<string>(rk(`token:${tokenId}`))
+        if (!buildId) {
+          const keys = await redis.keys(rk("build:*"))
+          for (const key of keys) {
+            if (key.startsWith(rk("build:token:")) || key.startsWith(rk("build:hash:"))) continue
+            const maybeBuild = await redis.get<any>(key)
+            if (!maybeBuild || typeof maybeBuild !== "object") continue
+            if (String(maybeBuild.tokenId) !== tokenId) continue
+            buildId = key.replace(rk("build:"), "")
+            break
+          }
+        }
+        if (!buildId) {
+          buildId = `build_backfilled_${tokenId}`
+        }
         await redis.set(rk(`token:${tokenId}`), buildId)
+
+        // Only create a synthetic build record when no real build exists.
+        const existingBuild = await redis.get<any>(rk(`build:${buildId}`))
+        if (!existingBuild) {
         let kind: number | undefined
         try {
           kind = Number(await contract.kindOf(id))
         } catch {
           kind = undefined
         }
-        await redis.set(rk(`build:${buildId}`), {
-          id: buildId,
-          name: `BASEBLOX #${tokenId}`,
-          creator: owner.toLowerCase(),
-          bricks: [],
-          tokenId,
-          kind,
-          created: new Date().toISOString(),
-          timestamp: Date.now(),
-        })
+          await redis.set(rk(`build:${buildId}`), {
+            id: buildId,
+            name: `BASEBLOX #${tokenId}`,
+            creator: owner.toLowerCase(),
+            bricks: [],
+            tokenId,
+            kind,
+            created: new Date().toISOString(),
+            timestamp: Date.now(),
+          })
+        }
 
         console.log(`[v0] Added token ${tokenId} to Redis`)
         results.added++

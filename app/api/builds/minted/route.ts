@@ -7,6 +7,28 @@ import type { Build } from "@/lib/types"
 
 // GET /api/builds/minted - Chain is truth, Redis is cache
 export async function GET(request: Request) {
+  const filterToLiveChainTokenIds = async (candidateTokenIds: string[]): Promise<string[]> => {
+    if (!candidateTokenIds.length) return []
+    try {
+      const provider = new ethers.JsonRpcProvider(RPC_URL)
+      const contract = new ethers.Contract(CONTRACTS.BUILD_NFT, BUILD_NFT_ABI, provider)
+      const nextTokenId = Number(await contract.nextTokenId())
+      const candidates = candidateTokenIds
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0 && id < nextTokenId)
+      if (!candidates.length) return []
+
+      const ownerChecks = await Promise.allSettled(candidates.map((id) => contract.ownerOf(id)))
+      const live = new Set<string>()
+      for (let i = 0; i < candidates.length; i++) {
+        if (ownerChecks[i].status === "fulfilled") live.add(String(candidates[i]))
+      }
+      return candidateTokenIds.filter((id) => live.has(String(id)))
+    } catch {
+      return candidateTokenIds
+    }
+  }
+
   const loadFromRedisCache = async () => {
     const tokenIds = await redis.smembers(rk("minted_tokens"))
     if (!tokenIds?.length) {
@@ -14,14 +36,45 @@ export async function GET(request: Request) {
       return NextResponse.json({ builds: buildsFromScan, source: "cache", missing: ["cache_index_missing"] })
     }
 
-    const tokenLookupKeys = tokenIds.map((tokenId) => rk(`token:${tokenId}`))
+    // Prune stale cache entries using chain truth so rogue tokens don't appear in UI.
+    let effectiveTokenIds = [...tokenIds]
+    try {
+      const provider = new ethers.JsonRpcProvider(RPC_URL)
+      const contract = new ethers.Contract(CONTRACTS.BUILD_NFT, BUILD_NFT_ABI, provider)
+      const nextTokenId = Number(await contract.nextTokenId())
+      const candidateIds = effectiveTokenIds
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0 && id < nextTokenId)
+
+      const liveSet = new Set<string>()
+      const ownerChecks = await Promise.allSettled(candidateIds.map((id) => contract.ownerOf(id)))
+      for (let i = 0; i < candidateIds.length; i++) {
+        if (ownerChecks[i].status === "fulfilled") {
+          liveSet.add(String(candidateIds[i]))
+        }
+      }
+
+      const stale = effectiveTokenIds.filter((id) => !liveSet.has(String(id)))
+      if (stale.length > 0) {
+        await Promise.all(stale.map((id) => redis.srem(rk("minted_tokens"), String(id))))
+      }
+      effectiveTokenIds = effectiveTokenIds.filter((id) => liveSet.has(String(id)))
+    } catch {
+      // Keep cache path resilient if chain is temporarily unavailable.
+    }
+
+    if (effectiveTokenIds.length === 0) {
+      return NextResponse.json({ builds: [], source: "cache", missing: ["cache_pruned_all"] })
+    }
+
+    const tokenLookupKeys = effectiveTokenIds.map((tokenId) => rk(`token:${tokenId}`))
     const buildIds = await redis.mget<string[]>(...tokenLookupKeys)
     const byToken = new Map<string, string>()
     const uniqueBuildIds = new Set<string>()
-    for (let i = 0; i < tokenIds.length; i++) {
+    for (let i = 0; i < effectiveTokenIds.length; i++) {
       const buildId = buildIds?.[i]
       if (!buildId) continue
-      byToken.set(String(tokenIds[i]), String(buildId))
+      byToken.set(String(effectiveTokenIds[i]), String(buildId))
       uniqueBuildIds.add(String(buildId))
     }
 
@@ -38,7 +91,7 @@ export async function GET(request: Request) {
     }
 
     const builds: Build[] = []
-    for (const tokenId of tokenIds) {
+    for (const tokenId of effectiveTokenIds) {
       const buildId = byToken.get(String(tokenId))
       if (!buildId) continue
       const build = buildById.get(buildId)
@@ -63,6 +116,8 @@ export async function GET(request: Request) {
       if (b.tokenId === undefined || b.tokenId === null || String(b.tokenId) === "") continue
       out.push({ ...b, tokenId: String(b.tokenId) })
     }
+    // Cache-first path: return quickly from Redis scan.
+    // Strict chain pruning is handled in the indexed cache path and truth mode.
     out.sort((a, b) => Number(b.tokenId) - Number(a.tokenId))
     return out
   }

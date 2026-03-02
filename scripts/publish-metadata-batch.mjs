@@ -21,7 +21,8 @@ function loadDotEnvLocal() {
     ) {
       val = val.slice(1, -1);
     }
-    if (!process.env[key]) process.env[key] = val;
+    // Always apply .env.local values in file order so later duplicate keys override earlier ones.
+    process.env[key] = val;
   }
 }
 
@@ -153,6 +154,7 @@ async function postWithRetry(url, makeRequest, options = {}) {
 
 function makeMetadataFormData(outDir, fileNames) {
   const formData = new FormData();
+  formData.append("pinataOptions", JSON.stringify({ wrapWithDirectory: true }));
   for (const fileName of fileNames) {
     const fullPath = path.join(outDir, fileName);
     const body = fs.readFileSync(fullPath);
@@ -189,6 +191,9 @@ async function main() {
   if (!buildNft) throw new Error("Missing NEXT_PUBLIC_BUILDNFT_ADDRESS");
   if (!rpcUrl) throw new Error("Missing BASE_SEPOLIA_RPC_URL / NEXT_PUBLIC_RPC_URL");
   if (!ipfsApiToken && !args.dryRun) throw new Error("Missing PINATA_JWT (or LIGHTHOUSE_API_KEY)");
+  if (!args.dryRun && ipfsApiToken && String(ipfsApiToken).split(".").length !== 3) {
+    throw new Error("PINATA_JWT is malformed (expected 3 JWT segments)");
+  }
 
   const redis = new Redis({ url: kvUrl, token: kvToken });
   const keyStyleA = {

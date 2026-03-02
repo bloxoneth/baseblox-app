@@ -94,49 +94,90 @@ export async function GET() {
       }),
     )
 
-    // On-chain fallback: when Redis doesn't contain brick records, scan BuildNFT directly.
-    if (mintedSet.size === 0) {
-      try {
-        const provider = new ethers.JsonRpcProvider(RPC_URL)
-        const buildNFT = new ethers.Contract(CONTRACTS.BUILD_NFT, BUILD_NFT_ABI, provider)
-        const nextTokenId = await buildNFT.nextTokenId()
-        const chunkSize = 50n
+    // Always try to refresh mapping from on-chain truth so stale Redis records
+    // cannot point a spec (e.g. 1x3-D1) to the wrong tokenId.
+    try {
+      const provider = new ethers.JsonRpcProvider(RPC_URL)
+      const buildNFT = new ethers.Contract(CONTRACTS.BUILD_NFT, BUILD_NFT_ABI, provider)
+      const nextTokenId = await buildNFT.nextTokenId()
+      const chunkSize = 50n
 
-        for (let start = 1n; start < nextTokenId; start += chunkSize) {
-          const end = start + chunkSize < nextTokenId ? start + chunkSize : nextTokenId
-          const ids: bigint[] = []
-          for (let id = start; id < end; id++) ids.push(id)
+      for (let start = 1n; start < nextTokenId; start += chunkSize) {
+        const end = start + chunkSize < nextTokenId ? start + chunkSize : nextTokenId
+        const ids: bigint[] = []
+        for (let id = start; id < end; id++) ids.push(id)
 
-          const kindResults = await Promise.allSettled(ids.map((id) => buildNFT.kindOf(id)))
-          const brickIds: bigint[] = []
-          const brickTokenIds: string[] = []
+        const existsResults = await Promise.allSettled(ids.map((id) => buildNFT.exists(id)))
+        const existingIds: bigint[] = []
+        for (let i = 0; i < ids.length; i++) {
+          const result = existsResults[i]
+          if (result.status !== "fulfilled") continue
+          if (!Boolean(result.value)) continue
+          existingIds.push(ids[i])
+        }
 
-          for (let i = 0; i < ids.length; i++) {
-            const result = kindResults[i]
-            if (result.status !== "fulfilled") continue
-            if (Number(result.value) !== 0) continue
-            brickIds.push(ids[i])
-            brickTokenIds.push(ids[i].toString())
-          }
+        if (existingIds.length === 0) continue
 
-          if (brickIds.length === 0) continue
+        const kindResults = await Promise.allSettled(existingIds.map((id) => buildNFT.kindOf(id)))
+        const brickIds: bigint[] = []
+        const brickTokenIds: string[] = []
 
-          const specResults = await Promise.allSettled(brickIds.map((id) => buildNFT.brickSpecOf(id)))
-          for (let i = 0; i < specResults.length; i++) {
-            const result = specResults[i]
-            if (result.status !== "fulfilled") continue
-            const [w, d, dens] = result.value
-            const spec = normalizeBrickKey(Number(w), Number(d), Number(dens))
-            mintedSet.add(spec)
-            if (!brickSpecToTokenId[spec]) brickSpecToTokenId[spec] = brickTokenIds[i]
-            if (Number(w) === 1 && Number(d) === 1 && !baseBrickTokensByDensity[String(Number(dens))]) {
-              baseBrickTokensByDensity[String(Number(dens))] = brickTokenIds[i]
-            }
+        for (let i = 0; i < existingIds.length; i++) {
+          const result = kindResults[i]
+          if (result.status !== "fulfilled") continue
+          if (Number(result.value) !== 0) continue
+          brickIds.push(existingIds[i])
+          brickTokenIds.push(existingIds[i].toString())
+        }
+
+        if (brickIds.length === 0) continue
+
+        const specResults = await Promise.allSettled(brickIds.map((id) => buildNFT.brickSpecOf(id)))
+        for (let i = 0; i < specResults.length; i++) {
+          const result = specResults[i]
+          if (result.status !== "fulfilled") continue
+          const [w, d, dens] = result.value
+          const spec = normalizeBrickKey(Number(w), Number(d), Number(dens))
+          mintedSet.add(spec)
+          // On-chain truth should override any stale Redis-derived mapping.
+          brickSpecToTokenId[spec] = brickTokenIds[i]
+          if (Number(w) === 1 && Number(d) === 1) {
+            baseBrickTokensByDensity[String(Number(dens))] = brickTokenIds[i]
           }
         }
-      } catch (chainErr) {
-        console.error("Failed on-chain brick scan fallback:", chainErr)
       }
+
+      // Final prune: remove any Redis-derived spec mapping that does not match
+      // an existing on-chain kind=0 brick with the same normalized spec.
+      const entries = Object.entries(brickSpecToTokenId)
+      for (const [spec, tokenId] of entries) {
+        try {
+          const id = BigInt(tokenId)
+          const exists = Boolean(await buildNFT.exists(id))
+          if (!exists) {
+            delete brickSpecToTokenId[spec]
+            mintedSet.delete(spec)
+            continue
+          }
+          const kind = Number(await buildNFT.kindOf(id))
+          if (kind !== 0) {
+            delete brickSpecToTokenId[spec]
+            mintedSet.delete(spec)
+            continue
+          }
+          const [w, d, dens] = await buildNFT.brickSpecOf(id)
+          const canonical = normalizeBrickKey(Number(w), Number(d), Number(dens))
+          if (canonical !== spec) {
+            delete brickSpecToTokenId[spec]
+            mintedSet.delete(spec)
+          }
+        } catch {
+          delete brickSpecToTokenId[spec]
+          mintedSet.delete(spec)
+        }
+      }
+    } catch (chainErr) {
+      console.error("Failed on-chain brick scan refresh:", chainErr)
     }
     
     return NextResponse.json({ mintedBricks: [...mintedSet], baseBrickTokensByDensity, brickSpecToTokenId })
