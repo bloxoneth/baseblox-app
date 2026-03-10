@@ -21,7 +21,7 @@ export interface UseBuildStateResult extends BuildState {
 }
 
 export function useBuildState(tokenId: bigint | string | null) {
-  const { chainId } = useMetaMask()
+  const { chainId, account } = useMetaMask()
   const [state, setState] = useState<BuildState | null>(null)
   const [pendingRewards, setPendingRewards] = useState<bigint>(0n)
   const [isLoading, setIsLoading] = useState(false)
@@ -53,7 +53,7 @@ export function useBuildState(tokenId: bigint | string | null) {
 
       const [buildState, rewards] = await Promise.all([
         getBuildState(provider, tokenIdBigInt),
-        getPendingRewards(provider, tokenIdBigInt).catch(() => 0n),
+        account ? getPendingRewards(provider, account).catch(() => 0n) : Promise.resolve(0n),
       ])
 
       setState(buildState)
@@ -64,7 +64,7 @@ export function useBuildState(tokenId: bigint | string | null) {
     } finally {
       setIsLoading(false)
     }
-  }, [tokenId, isCorrectChain, getProvider])
+  }, [tokenId, isCorrectChain, getProvider, account])
 
   useEffect(() => {
     fetchState()

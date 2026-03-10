@@ -107,6 +107,7 @@ export const BUILD_NFT_ABI = [
   "function BURN_FEE() view returns (uint256)",
   "function mintFee() view returns (uint256)",
   "function owner() view returns (address)",
+  "function distributor() view returns (address)",
   // ERC721 standard
   "function balanceOf(address owner) view returns (uint256)",
   "function ownerOf(uint256 tokenId) view returns (address)",
@@ -121,6 +122,7 @@ export const BUILD_NFT_ABI = [
 
 // LicenseRegistry ABI - maps component tokenIds to license IDs
 export const LICENSE_REGISTRY_ABI = [
+  "function nextLicenseId() view returns (uint256)",
   "function licenseIdForBuild(uint256 buildId) view returns (uint256)",
   "function buildIdForLicense(uint256 licenseId) view returns (uint256)",
   "function quote(uint256 buildId, uint256 qty) view returns (uint256)",
@@ -146,10 +148,26 @@ export const LICENSE_NFT_ABI = [
 
 // Distributor ABI - handles rewards distribution
 export const DISTRIBUTOR_ABI = [
-  "function claimRewards(uint256 tokenId)",
-  "function pendingRewards(uint256 tokenId) view returns (uint256)",
+  "function claim()",
+  "function claimTo(address to)",
+  "function ethOwed(address account) view returns (uint256)",
+  "function pendingLicenseRewards(address account, uint256[] licenseIds) view returns (uint256 total, uint256[] perId)",
+  "function claimLicenseRewards(uint256[] licenseIds)",
   "function totalDistributed() view returns (uint256)",
 ]
+
+async function resolveDistributorAddress(provider: ethers.BrowserProvider): Promise<string> {
+  const fallback = CONTRACTS.DISTRIBUTOR
+  if (fallback === "0x0000000000000000000000000000000000000000") return fallback
+  try {
+    const build = new ethers.Contract(CONTRACTS.BUILD_NFT, BUILD_NFT_ABI, provider)
+    const onchain = (await build.distributor()) as string
+    if (onchain && onchain !== "0x0000000000000000000000000000000000000000") return onchain
+  } catch {
+    // fall through to configured distributor
+  }
+  return fallback
+}
 
 // Local storage registry for minted hashes
 const MINTED_HASHES_KEY = "ethblox_minted_hashes"
@@ -777,6 +795,53 @@ export async function getLicenseBalances(
   return await contract.balanceOfBatch(accounts, licenseIds)
 }
 
+export interface OwnedLicense {
+  licenseId: bigint
+  buildId: bigint
+  balance: bigint
+}
+
+export async function getOwnedLicenses(
+  provider: ethers.BrowserProvider,
+  account: string,
+): Promise<OwnedLicense[]> {
+  if (
+    CONTRACTS.LICENSE_NFT === "0x0000000000000000000000000000000000000000" ||
+    CONTRACTS.LICENSE_REGISTRY === "0x0000000000000000000000000000000000000000"
+  ) {
+    return []
+  }
+
+  const registry = new ethers.Contract(CONTRACTS.LICENSE_REGISTRY, LICENSE_REGISTRY_ABI, provider)
+  const licenseNft = new ethers.Contract(CONTRACTS.LICENSE_NFT, LICENSE_NFT_ABI, provider)
+  const nextLicenseId = BigInt(await registry.nextLicenseId())
+  if (nextLicenseId <= 1n) return []
+
+  const licenseIds: bigint[] = []
+  for (let id = 1n; id < nextLicenseId; id++) {
+    licenseIds.push(id)
+  }
+
+  const balances = await licenseNft.balanceOfBatch(
+    licenseIds.map(() => account),
+    licenseIds,
+  )
+
+  const owned: OwnedLicense[] = []
+  for (let i = 0; i < licenseIds.length; i++) {
+    const bal = balances[i] ?? 0n
+    if (bal > 0n) {
+      const buildId = await registry.buildIdForLicense(licenseIds[i])
+      owned.push({
+        licenseId: licenseIds[i],
+        buildId: BigInt(buildId),
+        balance: BigInt(bal),
+      })
+    }
+  }
+  return owned
+}
+
 export async function approveLicenseNFT(
   provider: ethers.BrowserProvider,
   operator: string,
@@ -866,22 +931,47 @@ export async function getEscrowedLicenses(
 
 export async function getPendingRewards(
   provider: ethers.BrowserProvider,
-  tokenId: bigint,
+  account: string,
 ): Promise<bigint> {
-  if (CONTRACTS.DISTRIBUTOR === "0x0000000000000000000000000000000000000000") {
+  const distributor = await resolveDistributorAddress(provider)
+  if (distributor === "0x0000000000000000000000000000000000000000") {
     return 0n
   }
-  const contract = new ethers.Contract(CONTRACTS.DISTRIBUTOR, DISTRIBUTOR_ABI, provider)
-  return await contract.pendingRewards(tokenId)
+  const contract = new ethers.Contract(distributor, DISTRIBUTOR_ABI, provider)
+  return await contract.ethOwed(account)
 }
 
 export async function claimRewards(
   provider: ethers.BrowserProvider,
-  tokenId: bigint,
 ): Promise<ethers.ContractTransactionResponse> {
   const signer = await provider.getSigner()
-  const contract = new ethers.Contract(CONTRACTS.DISTRIBUTOR, DISTRIBUTOR_ABI, signer)
-  return await contract.claimRewards(tokenId)
+  const distributor = await resolveDistributorAddress(provider)
+  const contract = new ethers.Contract(distributor, DISTRIBUTOR_ABI, signer)
+  return await contract.claim()
+}
+
+export async function getPendingLicenseRewards(
+  provider: ethers.BrowserProvider,
+  account: string,
+  licenseIds: bigint[],
+): Promise<{ total: bigint; perId: bigint[] }> {
+  const distributor = await resolveDistributorAddress(provider)
+  if (distributor === "0x0000000000000000000000000000000000000000" || licenseIds.length === 0) {
+    return { total: 0n, perId: [] }
+  }
+  const contract = new ethers.Contract(distributor, DISTRIBUTOR_ABI, provider)
+  const [total, perId] = await contract.pendingLicenseRewards(account, licenseIds)
+  return { total, perId }
+}
+
+export async function claimLicenseRewards(
+  provider: ethers.BrowserProvider,
+  licenseIds: bigint[],
+): Promise<ethers.ContractTransactionResponse> {
+  const signer = await provider.getSigner()
+  const distributor = await resolveDistributorAddress(provider)
+  const contract = new ethers.Contract(distributor, DISTRIBUTOR_ABI, signer)
+  return await contract.claimLicenseRewards(licenseIds)
 }
 
 // ========== NEW: Validation Helpers ==========

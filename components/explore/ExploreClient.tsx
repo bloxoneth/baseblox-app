@@ -15,13 +15,28 @@ const fetcher = (url: string) => fetch(url).then(r => r.json())
 
 export function ExploreClient() {
   const networkName = process.env.NEXT_PUBLIC_NETWORK_NAME ?? "Base Sepolia"
-  const { data, isLoading } = useSWR<{ builds: Build[]; source?: string; missing?: string[] }>(
+  const { data: cacheData, isLoading: cacheLoading } = useSWR<{ builds: Build[]; source?: string; missing?: string[] }>(
     "/api/builds/minted",
     fetcher,
     {
     revalidateOnFocus: false,
     },
   )
+  const shouldLoadTruth =
+    !cacheLoading &&
+    (cacheData?.builds?.length ?? 0) === 0 &&
+    (cacheData?.missing ?? []).includes("cache_index_missing")
+
+  const { data: truthData, isLoading: truthLoading } = useSWR<{ builds: Build[]; source?: string; missing?: string[] }>(
+    shouldLoadTruth ? "/api/builds/minted?source=truth" : null,
+    fetcher,
+    {
+      revalidateOnFocus: false,
+    },
+  )
+
+  const data = shouldLoadTruth ? truthData ?? cacheData : cacheData
+  const isLoading = cacheLoading || (shouldLoadTruth && truthLoading)
   const builds = data?.builds ?? []
   const [search, setSearch] = useState("")
   const [kindFilter, setKindFilter] = useState<"all" | "brick" | "build">("all")

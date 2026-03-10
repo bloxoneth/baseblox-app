@@ -333,8 +333,8 @@ export async function POST(request: NextRequest) {
             }
             mintedBuild.ipfsPending = false
             mintedBuild.ipfsCid = cid
-            mintedBuild.ipfsUri = `ipfs://${cid}/${tokenId}.json`
-            mintedBuild.ipfsGatewayUrl = `${IPFS_GATEWAY_BASE}/${cid}/${tokenId}.json`
+            mintedBuild.ipfsUri = `ipfs://${cid}`
+            mintedBuild.ipfsGatewayUrl = `${IPFS_GATEWAY_BASE}/${cid}`
             mintedBuild.ipfsSyncedAt = new Date().toISOString()
             mintedBuild.ipfsLastError = undefined
             mintedBuild.ipfsLastAttemptAt = mintedBuild.ipfsSyncedAt

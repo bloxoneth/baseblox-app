@@ -1,125 +1,147 @@
 import { NextResponse } from "next/server"
 import { ethers } from "ethers"
 import { redis } from "@/lib/redis"
-import { rk } from "@/lib/redis-keys"
+import { chainNamespace, rk } from "@/lib/redis-keys"
 import { CONTRACTS, BUILD_NFT_ABI, RPC_URL } from "@/lib/contracts/ethblox-contracts"
 import type { Build } from "@/lib/types"
 
 // GET /api/builds/minted - Chain is truth, Redis is cache
 export async function GET(request: Request) {
-  const filterToLiveChainTokenIds = async (candidateTokenIds: string[]): Promise<string[]> => {
-    if (!candidateTokenIds.length) return []
-    try {
-      const provider = new ethers.JsonRpcProvider(RPC_URL)
-      const contract = new ethers.Contract(CONTRACTS.BUILD_NFT, BUILD_NFT_ABI, provider)
-      const nextTokenId = Number(await contract.nextTokenId())
-      const candidates = candidateTokenIds
-        .map((id) => Number(id))
-        .filter((id) => Number.isFinite(id) && id > 0 && id < nextTokenId)
-      if (!candidates.length) return []
+  const legacyPrefix = `ethblox:${process.env.NEXT_PUBLIC_CHAIN_ID ?? "84532"}:`
+  const currentNs = chainNamespace()
+  const useLegacyFallback = currentNs !== legacyPrefix
+  const legacyKey = (key: string) => `${legacyPrefix}${key}`
 
-      const ownerChecks = await Promise.allSettled(candidates.map((id) => contract.ownerOf(id)))
-      const live = new Set<string>()
-      for (let i = 0; i < candidates.length; i++) {
-        if (ownerChecks[i].status === "fulfilled") live.add(String(candidates[i]))
-      }
-      return candidateTokenIds.filter((id) => live.has(String(id)))
-    } catch {
-      return candidateTokenIds
-    }
+  const getWithFallback = async <T,>(key: string): Promise<T | null> => {
+    const primary = await redis.get<T>(rk(key))
+    if (primary !== null && primary !== undefined) return primary
+    if (!useLegacyFallback) return null
+    const legacy = await redis.get<T>(legacyKey(key))
+    return legacy ?? null
   }
 
   const loadFromRedisCache = async () => {
-    const tokenIds = await redis.smembers(rk("minted_tokens"))
+    let tokenIds = await redis.smembers(rk("minted_tokens"))
+    if ((!tokenIds || tokenIds.length === 0) && useLegacyFallback) {
+      tokenIds = await redis.smembers(legacyKey("minted_tokens"))
+    }
     if (!tokenIds?.length) {
-      const buildsFromScan = await loadFromBuildScan()
-      return NextResponse.json({ builds: buildsFromScan, source: "cache", missing: ["cache_index_missing"] })
+      return NextResponse.json({
+        builds: [],
+        source: "cache",
+        namespace: chainNamespace(),
+        contract: CONTRACTS.BUILD_NFT,
+        missing: ["cache_index_missing"],
+      })
     }
 
     // Prune stale cache entries using chain truth so rogue tokens don't appear in UI.
     let effectiveTokenIds = [...tokenIds]
-    try {
-      const provider = new ethers.JsonRpcProvider(RPC_URL)
-      const contract = new ethers.Contract(CONTRACTS.BUILD_NFT, BUILD_NFT_ABI, provider)
-      const nextTokenId = Number(await contract.nextTokenId())
-      const candidateIds = effectiveTokenIds
-        .map((id) => Number(id))
-        .filter((id) => Number.isFinite(id) && id > 0 && id < nextTokenId)
-
-      const liveSet = new Set<string>()
-      const ownerChecks = await Promise.allSettled(candidateIds.map((id) => contract.ownerOf(id)))
-      for (let i = 0; i < candidateIds.length; i++) {
-        if (ownerChecks[i].status === "fulfilled") {
-          liveSet.add(String(candidateIds[i]))
-        }
+    const provider = new ethers.JsonRpcProvider(RPC_URL)
+    const contract = new ethers.Contract(CONTRACTS.BUILD_NFT, BUILD_NFT_ABI, provider)
+    const nextTokenId = Number(await contract.nextTokenId())
+    const candidateIds = effectiveTokenIds
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id) && id > 0 && id < nextTokenId)
+    const ownerChecks = await Promise.allSettled(candidateIds.map((id) => contract.ownerOf(id)))
+    const liveSet = new Set<string>()
+    const ownerByToken = new Map<string, string>()
+    const liveTokenNums: number[] = []
+    for (let i = 0; i < candidateIds.length; i++) {
+      if (ownerChecks[i].status === "fulfilled") {
+        const token = String(candidateIds[i])
+        liveSet.add(token)
+        liveTokenNums.push(candidateIds[i])
+        ownerByToken.set(token, String(ownerChecks[i].value).toLowerCase())
       }
-
-      const stale = effectiveTokenIds.filter((id) => !liveSet.has(String(id)))
-      if (stale.length > 0) {
-        await Promise.all(stale.map((id) => redis.srem(rk("minted_tokens"), String(id))))
-      }
-      effectiveTokenIds = effectiveTokenIds.filter((id) => liveSet.has(String(id)))
-    } catch {
-      // Keep cache path resilient if chain is temporarily unavailable.
     }
+    const stale = effectiveTokenIds.filter((id) => !liveSet.has(String(id)))
+    if (stale.length > 0) {
+      await Promise.all(stale.map((id) => redis.srem(rk("minted_tokens"), String(id))))
+    }
+    effectiveTokenIds = effectiveTokenIds.filter((id) => liveSet.has(String(id)))
 
     if (effectiveTokenIds.length === 0) {
-      return NextResponse.json({ builds: [], source: "cache", missing: ["cache_pruned_all"] })
+      return NextResponse.json({
+        builds: [],
+        source: "cache",
+        namespace: chainNamespace(),
+        contract: CONTRACTS.BUILD_NFT,
+        missing: ["cache_pruned_all"],
+      })
     }
 
-    const tokenLookupKeys = effectiveTokenIds.map((tokenId) => rk(`token:${tokenId}`))
-    const buildIds = await redis.mget<string[]>(...tokenLookupKeys)
+    const kindChecks = await Promise.allSettled(liveTokenNums.map((id) => contract.kindOf(id)))
+    const geoChecks = await Promise.allSettled(liveTokenNums.map((id) => contract.geometryOf(id)))
+    const kindByToken = new Map<string, number>()
+    const geoByToken = new Map<string, string>()
+    for (let i = 0; i < liveTokenNums.length; i++) {
+      const token = String(liveTokenNums[i])
+      if (kindChecks[i].status === "fulfilled") kindByToken.set(token, Number(kindChecks[i].value))
+      if (geoChecks[i].status === "fulfilled") geoByToken.set(token, String(geoChecks[i].value).toLowerCase())
+    }
+
     const byToken = new Map<string, string>()
     const uniqueBuildIds = new Set<string>()
     for (let i = 0; i < effectiveTokenIds.length; i++) {
-      const buildId = buildIds?.[i]
+      const tokenId = String(effectiveTokenIds[i])
+      const buildId = await getWithFallback<string>(`token:${tokenId}`)
       if (!buildId) continue
-      byToken.set(String(effectiveTokenIds[i]), String(buildId))
+      byToken.set(tokenId, String(buildId))
       uniqueBuildIds.add(String(buildId))
     }
 
-    if (uniqueBuildIds.size === 0) return NextResponse.json({ builds: [], source: "cache", missing: ["cache_index_missing"] })
-
-    const buildKeys = Array.from(uniqueBuildIds).map((buildId) => rk(`build:${buildId}`))
-    const buildValues = await redis.mget<Build[]>(...buildKeys)
     const buildById = new Map<string, Build>()
-    for (let i = 0; i < buildKeys.length; i++) {
-      const build = buildValues?.[i]
+    for (const buildId of uniqueBuildIds) {
+      const build = await getWithFallback<Build>(`build:${buildId}`)
       if (!build) continue
-      const buildId = buildKeys[i].replace(rk("build:"), "")
       buildById.set(buildId, build)
     }
 
     const builds: Build[] = []
     for (const tokenId of effectiveTokenIds) {
       const buildId = byToken.get(String(tokenId))
-      if (!buildId) continue
-      const build = buildById.get(buildId)
-      if (!build) continue
-      builds.push({ ...build, tokenId: String(tokenId), buildId })
-    }
-    if (builds.length === 0) {
-      const buildsFromScan = await loadFromBuildScan()
-      return NextResponse.json({ builds: buildsFromScan, source: "cache", missing: ["cache_index_missing"] })
-    }
-    builds.sort((a, b) => Number(b.tokenId) - Number(a.tokenId))
-    return NextResponse.json({ builds, source: "cache", missing: [] })
-  }
+      const chainKind = kindByToken.get(String(tokenId))
+      const chainGeo = geoByToken.get(String(tokenId))
+      const chainOwner = ownerByToken.get(String(tokenId)) ?? "0x0000000000000000000000000000000000000000"
+      let accepted = false
 
-  const loadFromBuildScan = async (): Promise<Build[]> => {
-    const keys = await redis.keys(rk("build:*"))
-    if (!keys?.length) return []
-    const values = await redis.mget<Build[]>(...keys)
-    const out: Build[] = []
-    for (const b of values ?? []) {
-      if (!b) continue
-      if (b.tokenId === undefined || b.tokenId === null || String(b.tokenId) === "") continue
-      out.push({ ...b, tokenId: String(b.tokenId) })
+      if (buildId) {
+        const build = buildById.get(buildId)
+        if (build) {
+          const buildKind =
+            build.kind === undefined || build.kind === null ? undefined : Number(build.kind)
+          const buildGeo = String(build.geometryHash ?? build.buildHash ?? "").toLowerCase()
+          const kindMatch = buildKind === undefined || chainKind === undefined || buildKind === chainKind
+          const geoMatch = !buildGeo || !chainGeo || buildGeo === chainGeo
+          if (kindMatch && geoMatch) {
+            builds.push({ ...build, tokenId: String(tokenId), buildId })
+            accepted = true
+          }
+        }
+      }
+
+      if (!accepted) {
+        builds.push({
+          id: `chain_${tokenId}`,
+          name: `BASEBLOX #${tokenId}`,
+          creator: chainOwner,
+          bricks: [],
+          tokenId: String(tokenId),
+          kind: chainKind,
+          geometryHash: chainGeo,
+        })
+      }
     }
-    // Cache-first path: return quickly from Redis scan.
-    // Strict chain pruning is handled in the indexed cache path and truth mode.
-    out.sort((a, b) => Number(b.tokenId) - Number(a.tokenId))
-    return out
+
+    builds.sort((a, b) => Number(b.tokenId) - Number(a.tokenId))
+    return NextResponse.json({
+      builds,
+      source: "cache",
+      namespace: chainNamespace(),
+      contract: CONTRACTS.BUILD_NFT,
+      missing: builds.length === 0 ? ["cache_index_missing"] : [],
+    })
   }
 
   try {
@@ -199,9 +221,9 @@ export async function GET(request: Request) {
 
     for (const tokenId of chainTokenIds) {
       try {
-        const buildId = await redis.get<string>(rk(`token:${tokenId}`))
+        const buildId = await getWithFallback<string>(`token:${tokenId}`)
         if (buildId) {
-          const build = await redis.get<Build>(rk(`build:${buildId}`))
+          const build = await getWithFallback<Build>(`build:${buildId}`)
           if (build) {
             builds.push({ ...build, tokenId: String(tokenId), buildId })
             continue
@@ -236,6 +258,8 @@ export async function GET(request: Request) {
     return NextResponse.json({
       builds,
       source: "truth",
+      namespace: chainNamespace(),
+      contract: CONTRACTS.BUILD_NFT,
       missing: builds.length === 0 ? ["chain_has_no_minted_tokens"] : [],
     })
   } catch (error) {
@@ -243,6 +267,8 @@ export async function GET(request: Request) {
     return NextResponse.json({
       builds: [],
       source: "truth",
+      namespace: chainNamespace(),
+      contract: CONTRACTS.BUILD_NFT,
       missing: ["truth_query_failed"],
     })
   }

@@ -20,7 +20,16 @@ import {
 } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
 import { Copy, Check, Edit3, ExternalLink, Download, User, Star, Layers } from "lucide-react"
-import { CONTRACTS, tokenImageGatewayURL } from "@/lib/contracts/ethblox-contracts"
+import { ethers } from "ethers"
+import {
+  CONTRACTS,
+  tokenImageGatewayURL,
+  claimRewards,
+  getPendingRewards,
+  getOwnedLicenses,
+  getPendingLicenseRewards,
+  claimLicenseRewards,
+} from "@/lib/contracts/ethblox-contracts"
 import { calculateTotalBlox } from "@/lib/brick-utils"
 import type { Brick } from "@/lib/types"
 import { BuildVoxelPreview } from "@/components/preview/BuildVoxelPreview"
@@ -57,6 +66,13 @@ interface ProfileClientProps {
   address: string
 }
 
+interface LicenseHolding {
+  buildId: string
+  licenseId: string
+  balance: string
+  pendingWei: bigint
+}
+
 export default function ProfileClient({ address }: ProfileClientProps) {
   const { account, isConnected } = useMetaMask()
   const { balance: profileChainBalance, isCorrectChain } = useBloxBalance(address)
@@ -78,6 +94,12 @@ export default function ProfileClient({ address }: ProfileClientProps) {
   const [mintedBuilds, setMintedBuilds] = useState<MintedBuild[]>([])
   const [buildsLoading, setBuildsLoading] = useState(true)
   const [pfpImageFailed, setPfpImageFailed] = useState(false)
+  const [pendingEthOwed, setPendingEthOwed] = useState<bigint>(0n)
+  const [rewardsLoading, setRewardsLoading] = useState(false)
+  const [claimingOwnerRewards, setClaimingOwnerRewards] = useState(false)
+  const [claimingLicenseRewards, setClaimingLicenseRewards] = useState(false)
+  const [licenseHoldings, setLicenseHoldings] = useState<LicenseHolding[]>([])
+  const [licensesLoading, setLicensesLoading] = useState(false)
   
   const isOwnProfile = useMemo(() => {
     return account?.toLowerCase() === address.toLowerCase()
@@ -190,6 +212,58 @@ export default function ProfileClient({ address }: ProfileClientProps) {
       setBuildsLoading(false)
     }
   }
+
+  const fetchPendingRewards = useCallback(async () => {
+    if (!isConnected || !isCorrectChain) {
+      setPendingEthOwed(0n)
+      return
+    }
+    const ethereum = (window as any).ethereum
+    if (!ethereum) return
+
+    setRewardsLoading(true)
+    try {
+      const provider = new ethers.BrowserProvider(ethereum)
+      const pending = await getPendingRewards(provider, address)
+      setPendingEthOwed(pending)
+    } finally {
+      setRewardsLoading(false)
+    }
+  }, [isConnected, isCorrectChain, address])
+
+  const fetchLicenseHoldings = useCallback(async () => {
+    const ethereum = (window as any).ethereum
+    if (!ethereum) return
+
+    setLicensesLoading(true)
+    try {
+      const provider = new ethers.BrowserProvider(ethereum)
+      const owned = await getOwnedLicenses(provider, address)
+      const licenseIds = owned.map((row) => row.licenseId)
+      let perId: bigint[] = []
+      try {
+        const pending = await getPendingLicenseRewards(provider, address, licenseIds)
+        perId = pending.perId
+      } catch {
+        // Distributor may be deployed without license-reward extension.
+        perId = licenseIds.map(() => 0n)
+      }
+      const rows: LicenseHolding[] = []
+      for (let i = 0; i < owned.length; i++) {
+        rows.push({
+          buildId: owned[i].buildId.toString(),
+          licenseId: owned[i].licenseId.toString(),
+          balance: owned[i].balance.toString(),
+          pendingWei: perId[i] ?? 0n,
+        })
+      }
+      setLicenseHoldings(rows)
+    } catch {
+      setLicenseHoldings([])
+    } finally {
+      setLicensesLoading(false)
+    }
+  }, [address])
 
   const handleCopyAddress = async () => {
     await navigator.clipboard.writeText(address)
@@ -324,6 +398,75 @@ export default function ProfileClient({ address }: ProfileClientProps) {
     }
   }, [account, address, isOwnProfile, toast])
 
+  useEffect(() => {
+    fetchPendingRewards()
+  }, [fetchPendingRewards])
+
+  useEffect(() => {
+    fetchLicenseHoldings()
+  }, [fetchLicenseHoldings])
+
+  const totalLicensePendingWei = useMemo(() => {
+    return licenseHoldings.reduce((acc, row) => acc + row.pendingWei, 0n)
+  }, [licenseHoldings])
+
+  const totalPendingRewardsWei = useMemo(() => {
+    return pendingEthOwed + totalLicensePendingWei
+  }, [pendingEthOwed, totalLicensePendingWei])
+
+  const handleClaimOwnerRewards = async () => {
+    const ethereum = (window as any).ethereum
+    if (!ethereum || !isConnected || !isCorrectChain) return
+    setClaimingOwnerRewards(true)
+    try {
+      const provider = new ethers.BrowserProvider(ethereum)
+      const tx = await claimRewards(provider)
+      await tx.wait()
+      toast({
+        title: "Rewards claimed",
+        description: `Claimed build-owner ETH rewards.`,
+      })
+      await fetchPendingRewards()
+    } catch (err: any) {
+      toast({
+        title: "Claim failed",
+        description: err?.shortMessage || err?.message || "Failed to claim rewards",
+        variant: "destructive",
+      })
+    } finally {
+      setClaimingOwnerRewards(false)
+    }
+  }
+
+  const handleClaimLicenseRewards = async () => {
+    const claimableIds = licenseHoldings
+      .filter((row) => row.pendingWei > 0n)
+      .map((row) => BigInt(row.licenseId))
+    if (claimableIds.length === 0) return
+    const ethereum = (window as any).ethereum
+    if (!ethereum || !isConnected || !isCorrectChain) return
+    setClaimingLicenseRewards(true)
+    try {
+      const provider = new ethers.BrowserProvider(ethereum)
+      const tx = await claimLicenseRewards(provider, claimableIds)
+      await tx.wait()
+      toast({
+        title: "License rewards claimed",
+        description: "Claimed license-holder ETH rewards.",
+      })
+      await fetchPendingRewards()
+      await fetchLicenseHoldings()
+    } catch (err: any) {
+      toast({
+        title: "Claim failed",
+        description: err?.shortMessage || err?.message || "Failed to claim license rewards",
+        variant: "destructive",
+      })
+    } finally {
+      setClaimingLicenseRewards(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -405,7 +548,7 @@ export default function ProfileClient({ address }: ProfileClientProps) {
         </Card>
 
 {/* Portfolio Summary */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
           <Card>
             <CardContent className="pt-4 pb-4">
               <p className="text-xs text-[hsl(var(--ethblox-text-tertiary))] uppercase tracking-wider mb-1">BLOX</p>
@@ -432,9 +575,11 @@ export default function ProfileClient({ address }: ProfileClientProps) {
           </Card>
           <Card>
             <CardContent className="pt-4 pb-4">
-              <p className="text-xs text-[hsl(var(--ethblox-text-tertiary))] uppercase tracking-wider mb-1">Fees</p>
-              <p className="text-2xl font-bold text-[hsl(var(--ethblox-text-primary))]">--</p>
-              <p className="text-xs text-[hsl(var(--ethblox-text-tertiary))]">Coming soon</p>
+              <p className="text-xs text-[hsl(var(--ethblox-text-tertiary))] uppercase tracking-wider mb-1">Unclaimed ETH</p>
+              <p className="text-2xl font-bold text-[hsl(var(--ethblox-text-primary))]">
+                {Number(ethers.formatEther(totalPendingRewardsWei)).toFixed(5)}
+              </p>
+              <p className="text-xs text-[hsl(var(--ethblox-text-tertiary))]">from Distributor</p>
             </CardContent>
           </Card>
           <Card>
@@ -446,11 +591,61 @@ export default function ProfileClient({ address }: ProfileClientProps) {
           <Card>
             <CardContent className="pt-4 pb-4">
               <p className="text-xs text-[hsl(var(--ethblox-text-tertiary))] uppercase tracking-wider mb-1">Licenses</p>
-              <p className="text-2xl font-bold text-[hsl(var(--ethblox-text-primary))]">--</p>
-              <p className="text-xs text-[hsl(var(--ethblox-text-tertiary))]">Coming soon</p>
+              <p className="text-2xl font-bold text-[hsl(var(--ethblox-text-primary))]">{licenseHoldings.length}</p>
+              <p className="text-xs text-[hsl(var(--ethblox-text-tertiary))]">owned ids</p>
             </CardContent>
           </Card>
         </div>
+
+        <Card className="mb-8">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>Fee Collection</CardTitle>
+              <CardDescription>Claim ETH rewards from Build ownership and license holdings.</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {buildsLoading || rewardsLoading || licensesLoading ? (
+              <div className="text-sm text-[hsl(var(--ethblox-text-tertiary))]">Loading rewards…</div>
+            ) : (
+              <div className="space-y-4">
+                <div className="rounded-lg border border-[hsl(var(--ethblox-border))] px-3 py-3">
+                  <div className="text-sm text-[hsl(var(--ethblox-text-secondary))] mb-2">Build-owner rewards</div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-mono text-[hsl(var(--ethblox-text-primary))]">
+                      {Number(ethers.formatEther(pendingEthOwed)).toFixed(6)} ETH
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!isOwnProfile || pendingEthOwed === 0n || claimingOwnerRewards}
+                      onClick={handleClaimOwnerRewards}
+                    >
+                      {claimingOwnerRewards ? "Claiming..." : "Claim"}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-[hsl(var(--ethblox-border))] px-3 py-3">
+                  <div className="text-sm text-[hsl(var(--ethblox-text-secondary))] mb-2">License-holder rewards</div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-mono text-[hsl(var(--ethblox-text-primary))]">
+                      {Number(ethers.formatEther(totalLicensePendingWei)).toFixed(6)} ETH
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!isOwnProfile || totalLicensePendingWei === 0n || claimingLicenseRewards}
+                      onClick={handleClaimLicenseRewards}
+                    >
+                      {claimingLicenseRewards ? "Claiming..." : "Claim"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Builds Section */}
         <Card className="mb-8">
@@ -526,12 +721,30 @@ export default function ProfileClient({ address }: ProfileClientProps) {
         <Card className="mb-8">
           <CardHeader>
             <CardTitle>Licenses</CardTitle>
-            <CardDescription>Licenses owned by this builder</CardDescription>
+            <CardDescription>ERC-1155 license balances currently held by this wallet</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-center py-8 text-[hsl(var(--ethblox-text-tertiary))]">
-              Coming soon
-            </div>
+            {licensesLoading ? (
+              <div className="text-sm text-[hsl(var(--ethblox-text-tertiary))]">Loading licenses…</div>
+            ) : licenseHoldings.length === 0 ? (
+              <div className="text-sm text-[hsl(var(--ethblox-text-tertiary))]">No license balances found.</div>
+            ) : (
+              <div className="space-y-2">
+                {licenseHoldings.map((row) => (
+                  <div
+                    key={`license-${row.licenseId}-${row.buildId}`}
+                    className="flex items-center justify-between rounded-lg border border-[hsl(var(--ethblox-border))] px-3 py-2"
+                  >
+                    <div className="text-sm text-[hsl(var(--ethblox-text-secondary))]">
+                      Build #{row.buildId} · License #{row.licenseId}
+                    </div>
+                    <div className="text-sm font-mono text-[hsl(var(--ethblox-text-primary))]">
+                      {row.balance} · {Number(ethers.formatEther(row.pendingWei)).toFixed(6)} ETH
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 

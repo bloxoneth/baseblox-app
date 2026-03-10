@@ -1,25 +1,37 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { redis } from "@/lib/redis"
-import { rk, rpat } from "@/lib/redis-keys"
+import { chainNamespace, rk, rpat } from "@/lib/redis-keys"
 import type { Build } from "@/lib/types"
 
 export async function GET(request: NextRequest, context: { params: Promise<{ tokenId: string }> }) {
   try {
     const { tokenId } = await context.params
+    const legacyPrefix = `ethblox:${process.env.NEXT_PUBLIC_CHAIN_ID ?? "84532"}:`
+    const currentNs = chainNamespace()
+    const useLegacyFallback = currentNs !== legacyPrefix
+    const legacyKey = (key: string) => `${legacyPrefix}${key}`
+
+    const getWithFallback = async <T,>(key: string): Promise<T | null> => {
+      const primary = await redis.get<T>(rk(key))
+      if (primary !== null && primary !== undefined) return primary
+      if (!useLegacyFallback) return null
+      const legacy = await redis.get<T>(legacyKey(key))
+      return legacy ?? null
+    }
 
     console.log("[v0] [TOKEN API] Fetching build data for token ID:", tokenId)
 
     // First, try the new lookup: token:{tokenId} -> buildId
-    let buildId = await redis.get<string>(rk(`token:${tokenId}`))
+    let buildId = await getWithFallback<string>(`token:${tokenId}`)
 
     if (!buildId) {
       console.log("[v0] [TOKEN API] Token lookup failed, trying alt format")
-      buildId = await redis.get<string>(rk(`build:token:${tokenId}`))
+      buildId = await getWithFallback<string>(`build:token:${tokenId}`)
     }
 
     if (buildId) {
       console.log("[v0] [TOKEN API] Found buildId via token lookup:", buildId)
-      const buildData = await redis.get<Build>(rk(`build:${buildId}`))
+      const buildData = await getWithFallback<Build>(`build:${buildId}`)
 
       if (buildData) {
         console.log("[v0] [TOKEN API] Raw build data found, checking bricks...")
@@ -46,12 +58,17 @@ export async function GET(request: NextRequest, context: { params: Promise<{ tok
     }
 
     console.log("[v0] [TOKEN API] Scanning all build keys for tokenId match")
-    const allKeys = await redis.keys(rpat("build:*"))
-    console.log("[v0] [TOKEN API] Found", allKeys.length, "build keys")
+    const allKeysPrimary = await redis.keys(rpat("build:*"))
+    const allKeysLegacy = useLegacyFallback ? await redis.keys(`${legacyPrefix}build:*`) : []
+    const allKeys = Array.from(new Set([...(allKeysPrimary ?? []), ...(allKeysLegacy ?? [])]))
+    console.log("[v0] [TOKEN API] Found", allKeys.length, "build keys (primary+legacy)")
 
     for (const key of allKeys) {
       // Skip lookup keys
-      if (key.startsWith(rk("build:token:")) || key.startsWith(rk("build:hash:"))) continue
+      if (
+        key.includes("build:token:") ||
+        key.includes("build:hash:")
+      ) continue
 
       const data = await redis.get<Build>(key)
       if (data && typeof data === "object") {

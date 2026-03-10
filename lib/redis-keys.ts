@@ -1,13 +1,19 @@
 const CHAIN_NS = process.env.NEXT_PUBLIC_CHAIN_ID ?? "84532"
+const PREFIX = (process.env.REDIS_KEY_PREFIX ?? "").trim()
+
+function normalizedPrefix(): string {
+  if (!PREFIX) return ""
+  return PREFIX.endsWith(":") ? PREFIX : `${PREFIX}:`
+}
 
 export function chainNamespace(): string {
-  return CHAIN_NS
+  return normalizedPrefix() || `ethblox:${CHAIN_NS}:`
 }
 
 export function rk(key: string): string {
-  return `ethblox:${CHAIN_NS}:${key}`
+  return `${chainNamespace()}${key}`
 }
 
 export function rpat(pattern: string): string {
-  return `ethblox:${CHAIN_NS}:${pattern}`
+  return `${chainNamespace()}${pattern}`
 }

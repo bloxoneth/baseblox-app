@@ -67,6 +67,13 @@ function normalizeComponents(input: any): ComponentRow[] {
     Array.isArray(input?.componentCounts) &&
     input.componentBuildIds.length > 0 &&
     input.componentCounts.length > 0
+  const traitComponentIds = traitValue(input, "componentBuildIds")
+  const traitComponentCounts = traitValue(input, "componentCounts")
+  const hasTraitComponents =
+    typeof traitComponentIds === "string" &&
+    traitComponentIds.trim().length > 0 &&
+    typeof traitComponentCounts === "string" &&
+    traitComponentCounts.trim().length > 0
 
   // Prefer a single source to avoid accidental double counting.
   if (hasComposition) {
@@ -82,6 +89,18 @@ function normalizeComponents(input: any): ComponentRow[] {
   } else if (Array.isArray(input?.components)) {
     for (const c of input.components) {
       put(c?.componentId ?? c?.id, c?.count, c?.name)
+    }
+  } else if (hasTraitComponents) {
+    const ids = String(traitComponentIds)
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean)
+    const counts = String(traitComponentCounts)
+      .split(",")
+      .map((v) => Number(v.trim()))
+      .filter((v) => Number.isFinite(v))
+    for (let i = 0; i < Math.min(ids.length, counts.length); i++) {
+      put(ids[i], counts[i])
     }
   }
 
@@ -199,11 +218,6 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
     fetcher,
     { revalidateOnFocus: false }
   )
-  const { data: mintedIndex } = useSWR(
-    "/api/builds/check-minted",
-    fetcher,
-    { revalidateOnFocus: false }
-  )
 
   const isLoading = appLoading && onchainLoading && !appData
   const basescanURL = `${explorerBase}/token/${CONTRACTS.BUILD_NFT}?a=${tokenId}`
@@ -258,19 +272,7 @@ export function TokenDetailClient({ tokenId }: { tokenId: string }) {
   const compareDensity = Number.isFinite(chainDensity) ? chainDensity : ipfsDensity
   const compareMass = Number.isFinite(chainMass as number) ? chainMass : ipfsMass
   const compareGeom = chainGeom ?? ipfsGeom
-  const chainWidth = Number(onchain?.brickSpec?.width ?? NaN)
-  const chainDepth = Number(onchain?.brickSpec?.depth ?? NaN)
-  const chainArea = Number.isFinite(chainWidth) && Number.isFinite(chainDepth) ? chainWidth * chainDepth : 0
-  const baseByDensity = mintedIndex?.baseBrickTokensByDensity || {}
-  const canonicalCompSig =
-    chainKind === 0
-      ? chainArea <= 1
-        ? "(none)"
-        : (() => {
-            const baseTokenId = baseByDensity[String(compareDensity)]
-            return baseTokenId ? `${baseTokenId}x${chainArea}` : `1x1-D${compareDensity}x${chainArea}`
-          })()
-      : (ipfsCompSig || "(none)")
+  const canonicalCompSig = ipfsCompSig || "(none)"
   const compareTraits = ipfsTraits.filter((t) => {
     const k = String(t.label || "").trim().toLowerCase()
     return !["kind", "density", "mass", "geometry hash", "geometryhash", "width", "depth"].includes(k)
